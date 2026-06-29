@@ -13,10 +13,9 @@ COPY alembic/ ./alembic/
 RUN pip install --no-cache-dir psycopg2-binary
 RUN pip install --no-cache-dir -e ./shared/
 
-# Wait for postgres and run migrations
+# Copy helper scripts
 COPY scripts/wait-for-pg.py /usr/local/bin/wait-for-pg.py
-RUN chmod +x /usr/local/bin/wait-for-pg.py
+COPY scripts/run-migrations.py /usr/local/bin/run-migrations.py
+RUN chmod +x /usr/local/bin/wait-for-pg.py /usr/local/bin/run-migrations.py
 
-CMD wait-for-pg.py && \
-    SQLALCHEMY_URL="postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB" \
-    alembic -c alembic.ini upgrade head
+CMD wait-for-pg.py && run-migrations.py
