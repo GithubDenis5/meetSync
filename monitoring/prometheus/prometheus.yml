@@ -1,0 +1,63 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: "gateway"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["gateway:8000"]
+
+  - job_name: "auth-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["auth-service:8001"]
+
+  - job_name: "user-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["user-service:8002"]
+
+  - job_name: "group-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["group-service:8003"]
+
+  - job_name: "calendar-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["calendar-service:8004"]
+
+  - job_name: "ideas-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["ideas-service:8005"]
+
+  - job_name: "voting-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["voting-service:8006"]
+
+  - job_name: "recommendation-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["recommendation-service:8007"]
+
+  - job_name: "notification-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["notification-service:8008"]
+
+  - job_name: "telegram-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["telegram-service:8009"]
+
+  - job_name: "scheduler-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["scheduler-service:8010"]

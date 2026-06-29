@@ -1,0 +1,321 @@
+name: meetsync
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  meetsync_net:
+    driver: bridge
+
+services:
+  # ─── Infrastructure ──────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: meetsync-postgres
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - meetsync_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: meetsync-rabbitmq
+    env_file: .env
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - meetsync_net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: meetsync-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - meetsync_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ─── Microservices ──────────────────────────────────────────
+  gateway:
+    build:
+      context: .
+      dockerfile: ./gateway/Dockerfile
+    container_name: meetsync-gateway
+    env_file: .env
+    ports:
+      - "${GATEWAY_PORT:-8000}:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - meetsync_net
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: ./auth-service/Dockerfile
+    container_name: meetsync-auth
+    env_file: .env
+    environment:
+      SERVICE_PORT: ${AUTH_SERVICE_PORT}
+    ports:
+      - "${AUTH_SERVICE_PORT:-8001}:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - meetsync_net
+
+  user-service:
+    build:
+      context: .
+      dockerfile: ./user-service/Dockerfile
+    container_name: meetsync-user
+    env_file: .env
+    environment:
+      SERVICE_PORT: ${USER_SERVICE_PORT}
+    ports:
+      - "${USER_SERVICE_PORT:-8002}:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - meetsync_net
+
+  group-service:
+    build:
+      context: .
+      dockerfile: ./group-service/Dockerfile
+    container_name: meetsync-group
+    env_file: .env
+    environment:
+      SERVICE_PORT: ${GROUP_SERVICE_PORT}
+    ports:
+      - "${GROUP_SERVICE_PORT:-8003}:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - meetsync_net
+
+  calendar-service:
+    build:
+      context: .
+      dockerfile: ./calendar-service/Dockerfile
+    container_name: meetsync-calendar
+    env_file: .env
+    environment:
+      SERVICE_PORT: ${CALENDAR_SERVICE_PORT}
+    ports:
+      - "${CALENDAR_SERVICE_PORT:-8004}:8004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - meetsync_net
+
+  ideas-service:
+    build:
+      context: .
+      dockerfile: ./ideas-service/Dockerfile
+    container_name: meetsync-ideas
+    env_file: .env
+    environment:
+      SERVICE_PORT: ${IDEAS_SERVICE_PORT}
+    ports:
+      - "${IDEAS_SERVICE_PORT:-8005}:8005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - meetsync_net
+
+  voting-service:
+    build:
+      context: .
+      dockerfile: ./voting-service/Dockerfile
+    container_name: meetsync-voting
+    env_file: .env
+    environment:
+      SERVICE_PORT: ${VOTING_SERVICE_PORT}
+    ports:
+      - "${VOTING_SERVICE_PORT:-8006}:8006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - meetsync_net
+
+  recommendation-service:
+    build:
+      context: .
+      dockerfile: ./recommendation-service/Dockerfile
+    container_name: meetsync-recommendation
+    env_file: .env
+    environment:
+      SERVICE_PORT: ${RECOMMENDATION_SERVICE_PORT}
+    ports:
+      - "${RECOMMENDATION_SERVICE_PORT:-8007}:8007"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - meetsync_net
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: ./notification-service/Dockerfile
+    container_name: meetsync-notification
+    env_file: .env
+    environment:
+      SERVICE_PORT: ${NOTIFICATION_SERVICE_PORT}
+    ports:
+      - "${NOTIFICATION_SERVICE_PORT:-8008}:8008"
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - meetsync_net
+
+  telegram-service:
+    build:
+      context: .
+      dockerfile: ./telegram-service/Dockerfile
+    container_name: meetsync-telegram
+    env_file: .env
+    environment:
+      SERVICE_PORT: ${TELEGRAM_SERVICE_PORT}
+    ports:
+      - "${TELEGRAM_SERVICE_PORT:-8009}:8009"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - meetsync_net
+
+  scheduler-service:
+    build:
+      context: .
+      dockerfile: ./scheduler-service/Dockerfile
+    container_name: meetsync-scheduler
+    env_file: .env
+    environment:
+      SERVICE_PORT: ${SCHEDULER_SERVICE_PORT}
+    ports:
+      - "${SCHEDULER_SERVICE_PORT:-8010}:8010"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - meetsync_net
+
+  meeting-service:
+    build:
+      context: .
+      dockerfile: ./meeting-service/Dockerfile
+    container_name: meetsync-meeting
+    env_file: .env
+    environment:
+      SERVICE_PORT: ${MEETING_SERVICE_PORT}
+    ports:
+      - "${MEETING_SERVICE_PORT:-8011}:8011"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - meetsync_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: meetsync-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - gateway
+    networks:
+      - meetsync_net
+
+  # ─── Monitoring ──────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: meetsync-prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    networks:
+      - meetsync_net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: meetsync-grafana
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - meetsync_net

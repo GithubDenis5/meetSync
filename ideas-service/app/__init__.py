@@ -1,0 +1,1 @@
+"""Ideas Service for MeetSync."""
