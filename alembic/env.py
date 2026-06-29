@@ -1,5 +1,6 @@
 """Alembic migration environment configuration."""
 
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -7,6 +8,11 @@ from sqlalchemy import engine_from_config, pool
 
 # Alembic Config object
 config = context.config
+
+# Override database URL from environment variable if set (used by migration container)
+db_url = os.environ.get("SQLALCHEMY_URL")
+if db_url:
+    config.set_main_option("sqlalchemy.url", db_url)
 
 # Set up logging
 if config.config_file_name is not None:

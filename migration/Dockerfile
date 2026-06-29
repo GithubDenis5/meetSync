@@ -9,8 +9,16 @@ COPY shared/ ./shared/
 COPY alembic.ini .
 COPY alembic/ ./alembic/
 
-# Install shared module (includes all dependencies)
+# Install dependencies
+RUN pip install --no-cache-dir psycopg2-binary
 RUN pip install --no-cache-dir -e ./shared/
 
-# Run migrations on container start
-CMD ["alembic", "upgrade", "head"]
+# Build DB URL from env vars and run migrations
+COPY scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
+RUN chmod +x /usr/local/bin/wait-for-it.sh
+
+CMD ["sh", "-c", "\
+  wait-for-it.sh $${POSTGRES_HOST}:$${POSTGRES_PORT} -t 60 && \
+  export SQLALCHEMY_URL=postgresql://$${POSTGRES_USER}:$${POSTGRES_PASSWORD}@$${POSTGRES_HOST}:$${POSTGRES_PORT}/$${POSTGRES_DB} && \
+  alembic -c alembic.ini upgrade head \
+"]
