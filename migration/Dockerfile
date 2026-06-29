@@ -13,11 +13,10 @@ COPY alembic/ ./alembic/
 RUN pip install --no-cache-dir psycopg2-binary
 RUN pip install --no-cache-dir -e ./shared/
 
-# Copy wait script
-COPY scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
-RUN chmod +x /usr/local/bin/wait-for-it.sh
+# Wait for postgres and run migrations
+COPY scripts/wait-for-pg.py /usr/local/bin/wait-for-pg.py
+RUN chmod +x /usr/local/bin/wait-for-pg.py
 
-# Shell form CMD so Dockerfile escaping works correctly
-CMD wait-for-it.sh $POSTGRES_HOST:$POSTGRES_PORT -t 60 && \
-    SQLALCHEMY_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB \
+CMD wait-for-pg.py && \
+    SQLALCHEMY_URL="postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB" \
     alembic -c alembic.ini upgrade head
