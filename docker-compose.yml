@@ -68,6 +68,19 @@ services:
       timeout: 3s
       retries: 5
 
+  # ─── Database Migration ────────────────────────────────────
+  migration:
+    build:
+      context: .
+      dockerfile: ./migration/Dockerfile
+    container_name: meetsync-migration
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - meetsync_net
+
   # ─── Microservices ──────────────────────────────────────────
   gateway:
     build:
@@ -78,6 +91,8 @@ services:
     ports:
       - "${GATEWAY_PORT:-8000}:8000"
     depends_on:
+      migration:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     networks:
@@ -94,8 +109,8 @@ services:
     ports:
       - "${AUTH_SERVICE_PORT:-8001}:8001"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       rabbitmq:
@@ -114,8 +129,8 @@ services:
     ports:
       - "${USER_SERVICE_PORT:-8002}:8002"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
     networks:
@@ -132,8 +147,8 @@ services:
     ports:
       - "${GROUP_SERVICE_PORT:-8003}:8003"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
     networks:
@@ -150,8 +165,8 @@ services:
     ports:
       - "${CALENDAR_SERVICE_PORT:-8004}:8004"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
     networks:
@@ -168,8 +183,8 @@ services:
     ports:
       - "${IDEAS_SERVICE_PORT:-8005}:8005"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
     networks:
@@ -186,8 +201,8 @@ services:
     ports:
       - "${VOTING_SERVICE_PORT:-8006}:8006"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
     networks:
@@ -254,8 +269,8 @@ services:
     ports:
       - "${SCHEDULER_SERVICE_PORT:-8010}:8010"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
     networks:
@@ -272,8 +287,8 @@ services:
     ports:
       - "${MEETING_SERVICE_PORT:-8011}:8011"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
     networks:
       - meetsync_net
 

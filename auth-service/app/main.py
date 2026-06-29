@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import AuthSettings
 from app.routes import router
 from shared.database import DatabaseManager
+import shared.models  # noqa: F401 — register all models on Base.metadata
 
 logger = logging.getLogger("auth-service")
 settings = AuthSettings()
