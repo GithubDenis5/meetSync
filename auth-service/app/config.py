@@ -1,5 +1,7 @@
 """Auth service configuration."""
 
+from urllib.parse import quote
+
 from pydantic_settings import BaseSettings
 
 
@@ -40,7 +42,7 @@ class AuthSettings(BaseSettings):
 
     @property
     def rabbitmq_url(self) -> str:
-        return f"amqp://{self.rabbitmq_user}:{self.rabbitmq_password}@{self.rabbitmq_host}:{self.rabbitmq_port}/"
+        return f"amqp://{quote(self.rabbitmq_user, safe='')}:{quote(self.rabbitmq_password, safe='')}@{self.rabbitmq_host}:{self.rabbitmq_port}/"
 
     # JWT
     jwt_secret_key: str = "super-secret-jwt-key-change-in-production"

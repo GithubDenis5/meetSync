@@ -56,8 +56,9 @@ class Settings(BaseSettings):
 
     @property
     def rabbitmq_url(self) -> str:
+        from urllib.parse import quote
         return (
-            f"amqp://{self.rabbitmq_user}:{self.rabbitmq_password}"
+            f"amqp://{quote(self.rabbitmq_user, safe='')}:{quote(self.rabbitmq_password, safe='')}"
             f"@{self.rabbitmq_host}:{self.rabbitmq_port}/"
         )
 
