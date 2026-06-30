@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Optional
@@ -41,7 +42,20 @@ async def health():
 async def startup():
     global rmq
     rmq = RabbitMQClient(settings)  # type: ignore[arg-type]
-    await rmq.connect()
+
+    # Retry connecting to RabbitMQ with exponential backoff.
+    # DNS / RabbitMQ may not be immediately resolvable at container start.
+    max_attempts = 10
+    for attempt in range(1, max_attempts + 1):
+        try:
+            await rmq.connect()
+            break
+        except Exception as e:
+            if attempt == max_attempts:
+                logger.error("Failed to connect to RabbitMQ after %d attempts: %s", max_attempts, e)
+                raise
+            logger.warning("RabbitMQ connection attempt %d/%d failed: %s. Retrying...", attempt, max_attempts, e)
+            await asyncio.sleep(attempt * 2)
 
     # Subscribe to all events that need notification delivery
     notification_events = [
