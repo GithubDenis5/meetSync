@@ -31,6 +31,28 @@ migrate: ## Run alembic migrations on all services
 		docker compose exec $$service-service alembic upgrade head || true; \
 	done
 
+# ── Production helpers ──────────────────────────────────────────────
+
+ssl-init: ## Generate self-signed SSL certificates (bootstrap)
+	@echo "Initializing SSL certificates..."
+	@sh scripts/init-ssl.sh
+
+ssl-letsencrypt: ## Obtain/renew Let's Encrypt SSL certificates (usage: make ssl-letsencrypt DOMAIN=example.com)
+	@if [ -z "$(DOMAIN)" ]; then \
+		echo "Usage: make ssl-letsencrypt DOMAIN=example.com"; \
+		exit 1; \
+	fi
+	sh scripts/ssl-letsencrypt.sh $(DOMAIN)
+
+prod-build: ssl-init build ## Build all services with SSL certificates
+
+prod-up: ## Start all services (production)
+	docker compose up -d
+
+prod-deploy: ssl-init build prod-up ## Full production deployment (bootstrap)
+
+# ── Dev shortcuts ───────────────────────────────────────────────────
+
 shell-%: ## Open shell in a service (e.g. make shell-auth-service)
 	docker compose exec $(subst shell-,,$@) sh
 

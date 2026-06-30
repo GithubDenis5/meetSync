@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 60
 
     # CORS
-    cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    cors_origins: str = "https://localhost,http://localhost:5173,http://localhost:3000"
 
     @property
     def cors_origins_list(self) -> list[str]:

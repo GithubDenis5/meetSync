@@ -27,3 +27,7 @@ Thumbs.db
 
 # Docker
 .docker-env
+
+# SSL certificates (generated per-host, never committed)
+ssl/*.pem
+

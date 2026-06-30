@@ -31,6 +31,6 @@ class GatewaySettings(BaseSettings):
     redis_port: int = 6379
 
     # CORS
-    cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    cors_origins: str = "https://localhost,http://localhost:5173,http://localhost:3000"
 
     model_config = {"env_file": ".env", "case_sensitive": False}
