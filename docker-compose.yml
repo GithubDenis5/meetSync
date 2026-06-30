@@ -48,10 +48,11 @@ services:
     networks:
       - meetsync_net
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "rabbitmq-diagnostics ping >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 30s
+      retries: 10
+      start_period: 40s
 
   redis:
     image: redis:7-alpine
