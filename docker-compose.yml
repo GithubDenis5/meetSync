@@ -230,6 +230,7 @@ services:
       context: .
       dockerfile: ./notification-service/Dockerfile
     container_name: meetsync-notification
+    restart: unless-stopped
     env_file: .env
     environment:
       SERVICE_PORT: ${NOTIFICATION_SERVICE_PORT}
