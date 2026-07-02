@@ -12,7 +12,7 @@ from shared.database import Base
 
 if TYPE_CHECKING:
     from shared.models.group import Membership
-    from shared.models.calendar import Availability
+    from shared.models.calendar import Availability, RecurringRule
     from shared.models.idea import Idea, IdeaReaction
     from shared.models.meeting import MeetingParticipant
     from shared.models.notification import Notification
@@ -45,6 +45,7 @@ class User(Base):
     reactions: Mapped[list["IdeaReaction"]] = relationship(back_populates="user", lazy="selectin")
     meeting_participations: Mapped[list["MeetingParticipant"]] = relationship(back_populates="user", lazy="selectin")
     notifications: Mapped[list["Notification"]] = relationship(back_populates="user", lazy="selectin")
+    recurring_rules: Mapped[list["RecurringRule"]] = relationship(back_populates="user", lazy="selectin")
 
     def __repr__(self) -> str:
         return f"<User id={self.id} name={self.name}>"

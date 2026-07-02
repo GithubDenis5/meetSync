@@ -8,8 +8,10 @@ from collections import Counter
 
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select, and_, func, delete
+from sqlalchemy import select, and_, func, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+from shared.logging import setup_logging
 
 from app.config import IdeasSettings
 from shared.database import DatabaseManager
@@ -20,7 +22,10 @@ from shared.schemas.idea import (
     IdeaCreateRequest, IdeaUpdateRequest, IdeaResponse,
     ReactionRequest, CommentRequest, CommentResponse,
 )
+from shared.app_health import add_lifecycle
+from shared.metrics import add_prometheus_middleware
 
+setup_logging("ideas-service")
 logger = logging.getLogger("ideas-service")
 settings = IdeasSettings()
 db_manager = DatabaseManager(settings)  # type: ignore[arg-type]
@@ -29,10 +34,18 @@ auth = AuthHandler(settings)  # type: ignore[arg-type]
 app = FastAPI(title="MeetSync - Ideas Service", version="0.1.0", docs_url="/docs")
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins.split(","), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
+add_prometheus_middleware(app, "ideas-service")
+add_lifecycle(app, "ideas-service", db_manager=db_manager)
+
 
 @app.get("/health")
-async def health():
+async def health() -> dict:
     return {"service": "ideas-service", "status": "ok"}
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    await db_manager.close()
 
 
 def _get_reaction_counts(idea) -> dict[str, int]:
@@ -86,6 +99,39 @@ async def list_ideas(
         resp = await _idea_to_response(idea)
         responses.append(resp)
     return responses
+
+
+# ─── Search ────────────────────────────────────────────────────────
+
+
+@app.get("/api/v1/ideas/search", response_model=list[IdeaResponse])
+async def search_ideas(
+    q: str = Query(..., min_length=1),
+    group_id: int = Query(...),
+    category: str | None = None,
+    archived: bool = False,
+    user_id: int = Depends(auth.get_current_user_id),
+    db: AsyncSession = Depends(db_manager.get_session),
+):
+    """Full-text search across ideas using PostgreSQL tsvector."""
+    conditions = [
+        text("search_vector @@ plainto_tsquery('english', :q)").bindparams(q=q),
+        Idea.group_id == group_id,
+        Idea.is_archived == archived,
+    ]
+    if category:
+        conditions.append(Idea.category == category)
+
+    query = (
+        select(Idea)
+        .options(selectinload(Idea.reactions), selectinload(Idea.suggestor))
+        .where(and_(*conditions))
+        .order_by(text("ts_rank(search_vector, plainto_tsquery('english', :q)) DESC").bindparams(q=q))
+    )
+
+    result = await db.execute(query)
+    ideas = result.scalars().all()
+    return [await _idea_to_response(i) for i in ideas]
 
 
 @app.post("/api/v1/ideas", response_model=IdeaResponse, status_code=201)

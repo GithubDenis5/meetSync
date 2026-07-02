@@ -10,6 +10,7 @@ from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select, and_, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
+from shared.logging import setup_logging
 
 from app.config import VotingSettings
 from shared.database import DatabaseManager
@@ -22,7 +23,10 @@ from shared.schemas.vote import (
     VoteOptionResponse, VoteResponse as VoteResponseSchema,
     VoteResultResponse,
 )
+from shared.app_health import add_lifecycle
+from shared.metrics import add_prometheus_middleware
 
+setup_logging("voting-service")
 logger = logging.getLogger("voting-service")
 settings = VotingSettings()
 db_manager = DatabaseManager(settings)  # type: ignore[arg-type]
@@ -31,10 +35,18 @@ auth = AuthHandler(settings)  # type: ignore[arg-type]
 app = FastAPI(title="MeetSync - Voting Service", version="0.1.0", docs_url="/docs")
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins.split(","), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
+add_prometheus_middleware(app, "voting-service")
+add_lifecycle(app, "voting-service", db_manager=db_manager)
+
 
 @app.get("/health")
-async def health():
+async def health() -> dict:
     return {"service": "voting-service", "status": "ok"}
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    await db_manager.close()
 
 
 @app.post("/api/v1/voting", response_model=VoteResponseSchema, status_code=201)

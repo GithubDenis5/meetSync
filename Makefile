@@ -53,6 +53,18 @@ prod-deploy: ssl-init build prod-up ## Full production deployment (bootstrap)
 
 # ── Dev shortcuts ───────────────────────────────────────────────────
 
+backup: ## Create a database backup
+	docker compose exec pg-backup backup-db
+
+restore: ## Restore database from backup (usage: make restore FILE=backup-file.sql.gz)
+	@if [ -z "$(FILE)" ]; then \
+		echo "Usage: make restore FILE=backup-file.sql.gz"; \
+		echo "Available backups:"; \
+		docker compose exec pg-backup ls -lh /backups/postgres/; \
+		exit 1; \
+	fi
+	docker compose exec pg-backup restore-db /backups/postgres/$(FILE)
+
 shell-%: ## Open shell in a service (e.g. make shell-auth-service)
 	docker compose exec $(subst shell-,,$@) sh
 

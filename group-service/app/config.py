@@ -15,6 +15,9 @@ class GroupSettings(BaseSettings):
     def database_url(self) -> str:
         return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
 
+    redis_host: str = "redis"
+    redis_port: int = 6379
+
     rabbitmq_host: str = "rabbitmq"
     rabbitmq_port: int = 5672
     rabbitmq_user: str = "meetsync"

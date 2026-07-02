@@ -15,9 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import SchedulerSettings
 from shared.database import DatabaseManager
 from shared.auth import AuthHandler
+from shared.metrics import add_prometheus_middleware
 from shared.rabbitmq.client import RabbitMQClient
 from shared.rabbitmq.events import EventType
+from shared.logging import setup_logging
+from shared.app_health import add_lifecycle
 
+setup_logging("scheduler-service")
 logger = logging.getLogger("scheduler-service")
 settings = SchedulerSettings()
 db_manager = DatabaseManager(settings)  # type: ignore[arg-type]
@@ -25,6 +29,9 @@ auth = AuthHandler(settings)  # type: ignore[arg-type]
 
 app = FastAPI(title="MeetSync - Scheduler Service", version="0.1.0", docs_url="/docs")
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins.split(","), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+add_prometheus_middleware(app, "scheduler-service")
+add_lifecycle(app, "scheduler-service", db_manager=db_manager)
 
 rmq: Optional[RabbitMQClient] = None
 _scheduler_task: Optional[asyncio.Task] = None
@@ -63,6 +70,7 @@ async def shutdown():
             pass
     if rmq:
         await rmq.disconnect()
+    await db_manager.close()
 
 
 async def handle_availability_event(payload: dict) -> None:

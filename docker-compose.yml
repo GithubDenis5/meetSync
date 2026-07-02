@@ -6,6 +6,8 @@ volumes:
   redis_data:
   prometheus_data:
   grafana_data:
+  postgres_backup_data:
+  uploads_data:
 
 networks:
   meetsync_net:
@@ -82,6 +84,30 @@ services:
     networks:
       - meetsync_net
 
+  # ─── Backup ──────────────────────────────────────────────────
+  pg-backup:
+    build:
+      context: .
+      dockerfile: Dockerfile.pg-backup
+    container_name: meetsync-pg-backup
+    env_file: .env
+    environment:
+      BACKUP_DIR: /backups/postgres
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDB: ${POSTGRES_DB}
+      RETENTION_DAILY: "7"
+      RETENTION_WEEKLY: "4"
+      RETENTION_MONTHLY: "3"
+    volumes:
+      - postgres_backup_data:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - meetsync_net
+
   # ─── Microservices ──────────────────────────────────────────
   gateway:
     build:
@@ -91,6 +117,8 @@ services:
     env_file: .env
     ports:
       - "${GATEWAY_PORT:-8000}:8000"
+    volumes:
+      - uploads_data:/uploads
     depends_on:
       migration:
         condition: service_completed_successfully
@@ -325,6 +353,27 @@ services:
     networks:
       - meetsync_net
 
+  loki:
+    image: grafana/loki:3.0
+    container_name: meetsync-loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - meetsync_net
+
+  promtail:
+    image: grafana/promtail:3.0
+    container_name: meetsync-promtail
+    volumes:
+      - ./monitoring/promtail:/etc/promtail
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - meetsync_net
+    depends_on:
+      - loki
+
   grafana:
     image: grafana/grafana:latest
     container_name: meetsync-grafana
@@ -336,7 +385,9 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
     depends_on:
       - prometheus
+      - loki
     networks:
       - meetsync_net

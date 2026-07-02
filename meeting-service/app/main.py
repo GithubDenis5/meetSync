@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select, and_, delete
+from sqlalchemy import select, and_, delete, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from shared.logging import setup_logging
 
 from app.config import MeetingSettings
 from shared.database import DatabaseManager
@@ -18,11 +19,16 @@ from shared.models.meeting import Meeting, MeetingParticipant, RsvpStatus
 from shared.models.user import User
 from shared.models.group import Group, Membership
 from shared.models.idea import Idea
+from shared.models.calendar import Availability, AvailabilityStatus
 from shared.schemas.meeting import (
-    MeetingCreateRequest, MeetingResponse,
+    MeetingCreateRequest, MeetingResponse, AlternativeSlot,
+    SuggestAlternativesResponse,
     RsvpRequest, ParticipantResponse,
 )
+from shared.app_health import add_lifecycle
+from shared.metrics import add_prometheus_middleware
 
+setup_logging("meeting-service")
 logger = logging.getLogger("meeting-service")
 settings = MeetingSettings()
 db_manager = DatabaseManager(settings)  # type: ignore[arg-type]
@@ -37,10 +43,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+add_prometheus_middleware(app, "meeting-service")
+add_lifecycle(app, "meeting-service", db_manager=db_manager)
+
 
 @app.get("/health")
-async def health():
+async def health() -> dict:
     return {"service": "meeting-service", "status": "ok"}
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    await db_manager.close()
 
 
 async def _load_meeting_with_relations(
@@ -137,6 +151,38 @@ async def list_meetings(
         query = query.where(Meeting.date <= date_to)
 
     query = query.order_by(Meeting.date, Meeting.time)
+
+    result = await db.execute(query)
+    meetings = result.scalars().all()
+    return [await _meeting_to_response(m) for m in meetings]
+
+
+# ─── Search meetings ───────────────────────────────────────────────
+
+
+@app.get("/api/v1/meetings/search", response_model=list[MeetingResponse])
+async def search_meetings(
+    q: str = Query(..., min_length=1),
+    group_id: int = Query(...),
+    db: AsyncSession = Depends(db_manager.get_session),
+    user_id: int = Depends(auth.get_current_user_id),
+):
+    """Full-text search across meetings using PostgreSQL tsvector."""
+    await _verify_group_member(db, group_id, user_id)
+
+    query = (
+        select(Meeting)
+        .options(
+            selectinload(Meeting.creator),
+            selectinload(Meeting.idea),
+            selectinload(Meeting.participants).selectinload(MeetingParticipant.user),
+        )
+        .where(
+            Meeting.group_id == group_id,
+            text("search_vector @@ plainto_tsquery('english', :q)").bindparams(q=q),
+        )
+        .order_by(text("ts_rank(search_vector, plainto_tsquery('english', :q)) DESC").bindparams(q=q))
+    )
 
     result = await db.execute(query)
     meetings = result.scalars().all()
@@ -325,3 +371,73 @@ async def list_participants(
         )
         for mp, u in rows
     ]
+
+
+# ─── Suggest Alternative Dates ───────────────────────────────────
+
+
+@app.post("/api/v1/meetings/{meeting_id}/suggest-alternatives", response_model=SuggestAlternativesResponse)
+async def suggest_alternatives(
+    meeting_id: int,
+    user_id: int = Depends(auth.get_current_user_id),
+    db: AsyncSession = Depends(db_manager.get_session),
+):
+    """Suggest 3 best alternative meeting dates based on calendar availability."""
+    result = await db.execute(select(Meeting).where(Meeting.id == meeting_id))
+    meeting = result.scalar_one_or_none()
+    if not meeting:
+        raise HTTPException(404, "Meeting not found")
+    await _verify_group_member(db, meeting.group_id, user_id)
+
+    # Get total members
+    members_result = await db.execute(
+        select(func.count()).select_from(Membership)
+        .where(Membership.group_id == meeting.group_id)
+    )
+    total_members = members_result.scalar() or 1
+
+    # Check next 14 days for availability
+    today = date.today()
+    slots: list[dict] = []
+    for i in range(1, 15):
+        check_date = today + timedelta(days=i)
+
+        # Count free/maybe members
+        free_result = await db.execute(
+            select(Availability.user_id, User.name)
+            .join(User, Availability.user_id == User.id)
+            .where(and_(
+                Availability.group_id == meeting.group_id,
+                Availability.date == check_date,
+                Availability.status.in_([AvailabilityStatus.FREE, AvailabilityStatus.MAYBE]),
+            ))
+        )
+        free_members = [(row.user_id, row.name) for row in free_result.all()]
+        free_count = len(free_members)
+
+        slots.append({
+            "date": check_date,
+            "free_count": free_count,
+            "total_members": total_members,
+            "free_members": [name for _, name in free_members],
+        })
+
+    # Sort by free_count descending, pick top 3
+    slots.sort(key=lambda s: s["free_count"], reverse=True)
+    top_slots = slots[:3]
+    # Re-sort by date
+    top_slots.sort(key=lambda s: s["date"])
+
+    return SuggestAlternativesResponse(
+        meeting_id=meeting.id,
+        current_date=meeting.date,
+        suggestions=[
+            AlternativeSlot(
+                date=s["date"],
+                free_count=s["free_count"],
+                total_members=s["total_members"],
+                free_members=s["free_members"],
+            )
+            for s in top_slots
+        ],
+    )

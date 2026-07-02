@@ -32,6 +32,23 @@ class GroupResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MemberAvailabilityStats(BaseModel):
+    user_id: int
+    user_name: str
+    marked_days: int
+    free_days: int
+
+
+class GroupDashboardResponse(BaseModel):
+    total_members: int
+    total_meetings: int
+    average_attendance: float
+    upcoming_meetings: int
+    top_ideas: list[dict]
+    availability_pct: float
+    member_availability: list[MemberAvailabilityStats]
+
+
 class MemberResponse(BaseModel):
     id: int
     user_id: int

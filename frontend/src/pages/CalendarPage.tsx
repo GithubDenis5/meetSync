@@ -7,9 +7,9 @@ import {
   Avatar, IconButton, Badge, Snackbar, Alert, useMediaQuery,
   Drawer,
 } from "@mui/material";
-import { Add, ArrowBack, ArrowForward, Event, Delete } from "@mui/icons-material";
+import { Add, ArrowBack, ArrowForward, Event, Delete, Schedule } from "@mui/icons-material";
 import { groupApi, calendarApi, meetingApi } from "../utils/api";
-import { Group, Meeting, RsvpStatus } from "../types";
+import { Group, Meeting, RsvpStatus, RecurringRule } from "../types";
 
 const STATUS_COLORS: Record<string, string> = {
   free: "#4caf50",
@@ -55,6 +55,18 @@ const CalendarPage: React.FC = () => {
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [dayDetailOpen, setDayDetailOpen] = useState(false);
 
+  // Drag-to-select
+  const [dragActive, setDragActive] = useState(false);
+  const [dragStatus, setDragStatus] = useState<string | null>(null);
+  const [pendingChanges, setPendingChanges] = useState<Record<string, string>>({});
+
+  // Recurring rules (weekly pattern)
+  const [recurringRules, setRecurringRules] = useState<RecurringRule[]>([]);
+  const [weeklyPatternOpen, setWeeklyPatternOpen] = useState(false);
+  const [patternStatus, setPatternStatus] = useState<string>("free");
+  const [patternStartTime, setPatternStartTime] = useState("");
+  const [patternEndTime, setPatternEndTime] = useState("");
+
   // Snackbar
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: "success" | "error" }>({
     open: false, message: "", severity: "success",
@@ -72,7 +84,7 @@ const CalendarPage: React.FC = () => {
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  // Load availability and meetings when group/month changes
+  // Load availability, recurring rules, and meetings when group/month changes
   const loadData = useCallback(() => {
     if (!selectedGroup) return;
     const startDate = `${year}-${String(month + 1).padStart(2, "0")}-01`;
@@ -97,6 +109,11 @@ const CalendarPage: React.FC = () => {
         setGroupAvailabilities(map);
       }).catch(() => {});
 
+    // Recurring rules
+    calendarApi.listRecurringRules(Number(selectedGroup))
+      .then(({ data }) => setRecurringRules(data))
+      .catch(() => setRecurringRules([]));
+
     // Meetings
     meetingApi.list(Number(selectedGroup))
       .then(({ data }) => setMeetings(Array.isArray(data) ? data : []))
@@ -104,6 +121,82 @@ const CalendarPage: React.FC = () => {
   }, [selectedGroup, month, year]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // ─── Drag-to-select ───────────────────────────────────────────
+
+  const handleDragStart = (day: number, status: string) => {
+    if (isMobile) return;
+    setDragActive(true);
+    setDragStatus(status);
+    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    setAvailabilities((prev) => ({ ...prev, [dateStr]: { status } }));
+    setPendingChanges((prev) => ({ ...prev, [dateStr]: status }));
+  };
+
+  const handleDragEnter = (day: number) => {
+    if (!dragActive || !dragStatus || isMobile) return;
+    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    setAvailabilities((prev) => ({ ...prev, [dateStr]: { status: dragStatus } }));
+    setPendingChanges((prev) => ({ ...prev, [dateStr]: dragStatus! }));
+  };
+
+  const handleDragEnd = async () => {
+    if (!dragActive || !selectedGroup) {
+      setDragActive(false);
+      setDragStatus(null);
+      return;
+    }
+    setDragActive(false);
+    setDragStatus(null);
+
+    // Batch-commit all pending changes
+    const entries = Object.entries(pendingChanges);
+    if (entries.length > 0) {
+      const batch = entries.map(([date, status]) => ({
+        group_id: Number(selectedGroup),
+        date,
+        status,
+      }));
+      try {
+        await calendarApi.setAvailabilityBatch(Number(selectedGroup), batch);
+        // Refresh group calendar
+        const startDate = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+        const endDate = new Date(year, month + 1, 0).toISOString().split("T")[0];
+        calendarApi.getGroupCalendar(Number(selectedGroup), startDate, endDate)
+          .then(({ data }) => {
+            const map: Record<string, { user_id: number; name: string; status: string }[]> = {};
+            data.forEach((a: { date: string; user_id: number; user_name?: string; name?: string; status: string }) => {
+              if (!map[a.date]) map[a.date] = [];
+              map[a.date].push({ user_id: a.user_id, name: a.user_name || a.name || "Unknown", status: a.status });
+            });
+            setGroupAvailabilities(map);
+          }).catch(() => {});
+      } catch {
+        // Revert on failure
+        loadData();
+      }
+    }
+    setPendingChanges({});
+  };
+
+  // Quick week actions
+  const applyWeekPattern = async (status: string) => {
+    if (!selectedGroup) return;
+    const startDate = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const batch = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      batch.push({ group_id: Number(selectedGroup), date: dateStr, status });
+    }
+    try {
+      await calendarApi.setAvailabilityBatch(Number(selectedGroup), batch);
+      setSnackbar({ open: true, message: `Marked ${daysInMonth} days as "${status}"`, severity: "success" });
+      loadData();
+    } catch {
+      setSnackbar({ open: true, message: "Failed to update", severity: "error" });
+    }
+  };
 
   const updateStatus = async (day: number, status: string) => {
     if (!selectedGroup) return;
@@ -234,6 +327,76 @@ const CalendarPage: React.FC = () => {
     return counts;
   };
 
+  // ─── Recurring Rules ──────────────────────────────────────────
+
+  const DAYS_OF_WEEK = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+
+  const hasDayRule = (day: string) => recurringRules.some((r) => r.day_of_week === day);
+
+  const toggleDayRule = async (day: string) => {
+    if (!selectedGroup) return;
+    const existing = recurringRules.find((r) => r.day_of_week === day);
+    try {
+      if (existing) {
+        await calendarApi.deleteRecurringRule(existing.id);
+        setRecurringRules((prev) => prev.filter((r) => r.id !== existing.id));
+      } else {
+        const { data } = await calendarApi.createRecurringRule({
+          group_id: Number(selectedGroup),
+          day_of_week: day,
+          status: patternStatus,
+          start_time: patternStartTime || undefined,
+          end_time: patternEndTime || undefined,
+        });
+        setRecurringRules((prev) => [...prev, data]);
+      }
+      setSnackbar({ open: true, message: existing ? "Rule removed" : "Rule added", severity: "success" });
+    } catch {
+      setSnackbar({ open: true, message: "Failed to update rule", severity: "error" });
+    }
+  };
+
+  const applyQuickPattern = async (days: string[], status: string) => {
+    if (!selectedGroup) return;
+    const startTime = status === "free" ? "09:00" : "";
+    const endTime = status === "free" ? "18:00" : "";
+    try {
+      // Delete all existing rules first
+      for (const rule of recurringRules) {
+        await calendarApi.deleteRecurringRule(rule.id);
+      }
+      // Create new rules
+      const newRules: RecurringRule[] = [];
+      for (const day of days) {
+        const { data } = await calendarApi.createRecurringRule({
+          group_id: Number(selectedGroup),
+          day_of_week: day,
+          status,
+          start_time: startTime || undefined,
+          end_time: endTime || undefined,
+        });
+        newRules.push(data);
+      }
+      setRecurringRules(newRules);
+      setSnackbar({ open: true, message: `Pattern applied (${days.length} days)`, severity: "success" });
+    } catch {
+      setSnackbar({ open: true, message: "Failed to apply pattern", severity: "error" });
+    }
+  };
+
+  const clearAllRules = async () => {
+    if (!selectedGroup) return;
+    try {
+      for (const rule of recurringRules) {
+        await calendarApi.deleteRecurringRule(rule.id);
+      }
+      setRecurringRules([]);
+      setSnackbar({ open: true, message: "All rules cleared", severity: "success" });
+    } catch {
+      setSnackbar({ open: true, message: "Failed to clear rules", severity: "error" });
+    }
+  };
+
   const prevMonth = () => {
     if (month === 0) { setMonth(11); setYear((prev) => prev - 1); }
     else setMonth((m) => m - 1);
@@ -273,6 +436,86 @@ const CalendarPage: React.FC = () => {
               {new Date(year, month).toLocaleString("default", { month: "long", year: "numeric" })}
             </Typography>
             <IconButton onClick={nextMonth}><ArrowForward /></IconButton>
+          </Box>
+
+          {/* ─── Weekly Pattern (collapsible) ──────────────────── */}
+          <Box sx={{ mb: 1.5 }}>
+            <Button
+              size="small"
+              startIcon={<Schedule />}
+              onClick={() => setWeeklyPatternOpen(!weeklyPatternOpen)}
+              sx={{ textTransform: "none", fontSize: "0.8125rem" }}
+            >
+              {weeklyPatternOpen ? "Hide" : "Show"} Weekly Pattern
+              {recurringRules.length > 0 && (
+                <Chip label={`${recurringRules.length} day${recurringRules.length > 1 ? "s" : ""}`} size="small"
+                  sx={{ ml: 1, height: 20, fontSize: 11, bgcolor: "primary.main", color: "white" }} />
+              )}
+            </Button>
+
+            {weeklyPatternOpen && (
+              <Box sx={{ mt: 1.5, p: 2, bgcolor: "action.hover", borderRadius: 2 }}>
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600, fontSize: "0.8125rem", color: "text.secondary" }}>
+                  Set your typical weekly availability
+                </Typography>
+
+                {/* Day toggles */}
+                <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 1.5 }}>
+                  {DAYS_OF_WEEK.map((day) => {
+                    const active = hasDayRule(day);
+                    const label = day.charAt(0).toUpperCase() + day.slice(1, 3);
+                    return (
+                      <Button
+                        key={day}
+                        size="small"
+                        variant={active ? "contained" : "outlined"}
+                        onClick={() => toggleDayRule(day)}
+                        sx={{
+                          minWidth: 40, fontSize: "0.7rem", py: 0.5,
+                          bgcolor: active ? "primary.main" : undefined,
+                          "&:hover": { bgcolor: active ? "primary.dark" : "action.hover" },
+                        }}
+                      >
+                        {label}
+                      </Button>
+                    );
+                  })}
+                </Box>
+
+                {/* Status + time */}
+                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center", mb: 1.5 }}>
+                  <FormControl size="small" sx={{ minWidth: 90 }}>
+                    <InputLabel>Status</InputLabel>
+                    <Select value={patternStatus} onChange={(e) => setPatternStatus(e.target.value)} label="Status">
+                      <MenuItem value="free">Free</MenuItem>
+                      <MenuItem value="busy">Busy</MenuItem>
+                      <MenuItem value="maybe">Maybe</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <TextField size="small" type="time" label="From" value={patternStartTime}
+                    onChange={(e) => setPatternStartTime(e.target.value)} InputLabelProps={{ shrink: true }}
+                    sx={{ maxWidth: 120 }} />
+                  <TextField size="small" type="time" label="To" value={patternEndTime}
+                    onChange={(e) => setPatternEndTime(e.target.value)} InputLabelProps={{ shrink: true }}
+                    sx={{ maxWidth: 120 }} />
+                </Box>
+
+                {/* Quick actions */}
+                <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                  <Button size="small" variant="outlined" onClick={() =>
+                    applyQuickPattern(["monday", "tuesday", "wednesday", "thursday", "friday"], "free")}>
+                    Free weekdays
+                  </Button>
+                  <Button size="small" variant="outlined" onClick={() =>
+                    applyQuickPattern(["saturday", "sunday"], "busy")}>
+                    Busy weekends
+                  </Button>
+                  <Button size="small" variant="outlined" color="error" onClick={clearAllRules}>
+                    Clear all
+                  </Button>
+                </Box>
+              </Box>
+            )}
           </Box>
 
           {/* ─── Day Headers ────────────────────────────────────── */}
@@ -366,8 +609,12 @@ const CalendarPage: React.FC = () => {
                   ) : (
                     /* ── Desktop: full-featured cell ── */
                     <Box
+                      onMouseDown={() => !dragActive && setPendingChanges({})}
+                      onMouseUp={handleDragEnd}
                       sx={{
-                        border: 1, borderColor: "divider", borderRadius: 1,
+                        border: 1, borderColor: dragActive && pendingChanges[`${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`] ? `${STATUS_COLORS[pendingChanges[`${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`]]}80` : "divider",
+                        borderWidth: dragActive && pendingChanges[`${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`] ? 2 : 1,
+                        borderRadius: 1,
                         p: 0.5,
                         minHeight: 100,
                         bgcolor: STATUS_COLORS[status] + "15",
@@ -380,18 +627,30 @@ const CalendarPage: React.FC = () => {
                         {day}
                       </Typography>
 
-                      {/* Desktop: Personal availability toggles */}
-                      <ToggleButtonGroup
-                        size="small"
-                        value={status}
-                        exclusive
-                        onChange={(_, v) => v && updateStatus(day, v)}
-                        sx={{ flexDirection: "row", gap: 0.2, mb: 0.3 }}
+                      {/* Desktop: Drag-to-select buttons */}
+                      <Box sx={{ display: "flex", gap: 0.2, mb: 0.3 }}
+                        onMouseEnter={() => handleDragEnter(day)}
                       >
-                        <ToggleButton value="free" sx={{ p: "1px 4px", minWidth: 30, fontSize: 9, lineHeight: 1.2, color: "#4caf50", "&.Mui-selected": { bgcolor: "#4caf50", color: "white", "&:hover": { bgcolor: "#388e3c" } } }}>F</ToggleButton>
-                        <ToggleButton value="busy" sx={{ p: "1px 4px", minWidth: 30, fontSize: 9, lineHeight: 1.2, color: "#f44336", "&.Mui-selected": { bgcolor: "#f44336", color: "white", "&:hover": { bgcolor: "#d32f2f" } } }}>B</ToggleButton>
-                        <ToggleButton value="maybe" sx={{ p: "1px 4px", minWidth: 30, fontSize: 9, lineHeight: 1.2, color: "#ff9800", "&.Mui-selected": { bgcolor: "#ff9800", color: "white", "&:hover": { bgcolor: "#f57c00" } } }}>M</ToggleButton>
-                      </ToggleButtonGroup>
+                        {(["free", "busy", "maybe"] as string[]).map((s) => {
+                          const isSelected = status === s || (dragActive && dragStatus === s);
+                          return (
+                            <Button
+                              key={s}
+                              size="small"
+                              variant={isSelected ? "contained" : "text"}
+                              onMouseDown={(e) => { e.stopPropagation(); handleDragStart(day, s); }}
+                              sx={{
+                                minWidth: 28, p: "1px 3px", fontSize: 9, lineHeight: 1.2,
+                                color: isSelected ? "white" : STATUS_COLORS[s],
+                                bgcolor: isSelected ? STATUS_COLORS[s] : "transparent",
+                                "&:hover": { bgcolor: isSelected ? STATUS_COLORS[s] : STATUS_COLORS[s] + "20" },
+                              }}
+                            >
+                              {s === "free" ? "F" : s === "busy" ? "B" : "M"}
+                            </Button>
+                          );
+                        })}
+                      </Box>
 
                       {/* Desktop: Group availability summary */}
                       {groupStatus.length > 0 && (
@@ -443,8 +702,29 @@ const CalendarPage: React.FC = () => {
             })}
           </Grid>
 
+          {/* Quick actions (desktop) */}
+          {!isMobile && (
+            <Box sx={{ display: "flex", gap: 1, mt: 1.5, justifyContent: "center", flexWrap: "wrap" }}>
+              <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5, alignSelf: "center" }}>
+                Quick:
+              </Typography>
+              <Button size="small" variant="outlined" sx={{ fontSize: 11, py: 0.25, color: "#4caf50", borderColor: "#4caf50" }}
+                onClick={() => applyWeekPattern("free")}>
+                Free month
+              </Button>
+              <Button size="small" variant="outlined" sx={{ fontSize: 11, py: 0.25, color: "#f44336", borderColor: "#f44336" }}
+                onClick={() => applyWeekPattern("busy")}>
+                Busy month
+              </Button>
+              <Button size="small" variant="outlined" sx={{ fontSize: 11, py: 0.25, color: "#ff9800", borderColor: "#ff9800" }}
+                onClick={() => applyWeekPattern("maybe")}>
+                Maybe month
+              </Button>
+            </Box>
+          )}
+
           {/* Legend */}
-          <Box sx={{ display: "flex", gap: 2, mt: 2, justifyContent: "center", flexWrap: "wrap" }}>
+          <Box sx={{ display: "flex", gap: 2, mt: 1.5, justifyContent: "center", flexWrap: "wrap" }}>
             <Chip label="Free" sx={{ bgcolor: "#4caf50", color: "white", fontSize: 12 }} size="small" />
             <Chip label="Busy" sx={{ bgcolor: "#f44336", color: "white", fontSize: 12 }} size="small" />
             <Chip label="Maybe" sx={{ bgcolor: "#ff9800", color: "white", fontSize: 12 }} size="small" />

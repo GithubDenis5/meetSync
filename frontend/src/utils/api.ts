@@ -83,6 +83,10 @@ export const groupApi = {
     api.patch(`/groups/${groupId}/members/${memberId}/role`, { role }),
   removeMember: (groupId: number, memberId: number) =>
     api.delete(`/groups/${groupId}/members/${memberId}`),
+  dashboard: (groupId: number) =>
+    api.get(`/groups/${groupId}/dashboard`),
+  onlineMembers: (groupId: number) =>
+    api.get(`/groups/${groupId}/online`),
 };
 
 // ─── Calendar ─────────────────────────────────────────────────────
@@ -112,8 +116,32 @@ export const calendarApi = {
     api.get(`/calendar/availability/user/${userId}`, {
       params: { group_id: groupId, start_date: startDate, end_date: endDate },
     }),
+  setAvailabilityBatch: (groupId: number, items: Array<{ group_id: number; date: string; status: string }>) =>
+    api.post("/calendar/availability/batch", items),
   deleteAvailability: (id: number) =>
     api.delete(`/calendar/availability/${id}`),
+  // Recurring rules
+  createRecurringRule: (data: {
+    group_id: number;
+    day_of_week: string;
+    status: string;
+    start_time?: string;
+    end_time?: string;
+    date_start?: string;
+    date_end?: string;
+  }) => api.post("/calendar/recurring-rules", data),
+  listRecurringRules: (groupId: number) =>
+    api.get("/calendar/recurring-rules", { params: { group_id: groupId } }),
+  updateRecurringRule: (ruleId: number, data: {
+    day_of_week?: string;
+    status?: string;
+    start_time?: string;
+    end_time?: string;
+    date_start?: string;
+    date_end?: string;
+  }) => api.put(`/calendar/recurring-rules/${ruleId}`, data),
+  deleteRecurringRule: (ruleId: number) =>
+    api.delete(`/calendar/recurring-rules/${ruleId}`),
 };
 
 // ─── Ideas ─────────────────────────────────────────────────────
@@ -121,6 +149,8 @@ export const calendarApi = {
 export const ideasApi = {
   list: (groupId: number, archived = false) =>
     api.get("/ideas", { params: { group_id: groupId, archived } }),
+  search: (groupId: number, q: string, category?: string) =>
+    api.get("/ideas/search", { params: { group_id: groupId, q, category } }),
   create: (groupId: number, data: {
     title: string;
     description?: string;
@@ -167,6 +197,8 @@ export const votingApi = {
 export const meetingApi = {
   list: (groupId: number) =>
     api.get("/meetings", { params: { group_id: groupId } }),
+  search: (groupId: number, q: string) =>
+    api.get("/meetings/search", { params: { group_id: groupId, q } }),
   get: (id: number) =>
     api.get(`/meetings/${id}`),
   create: (data: {
@@ -184,6 +216,8 @@ export const meetingApi = {
     api.delete(`/meetings/${id}`),
   participants: (id: number) =>
     api.get(`/meetings/${id}/participants`),
+  suggestAlternatives: (meetingId: number) =>
+    api.post(`/meetings/${meetingId}/suggest-alternatives`),
 };
 
 // ─── Recommendations ──────────────────────────────────────────
@@ -197,6 +231,18 @@ export const recommendationApi = {
     api.get("/recommendations/weather", { params: { city } }),
 };
 
+// ─── Upload ─────────────────────────────────────────────────────
+
+export const uploadApi = {
+  upload: (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post("/upload", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+};
+
 // ─── Notifications ────────────────────────────────────────────
 
 export const notificationApi = {
@@ -205,4 +251,6 @@ export const notificationApi = {
   markRead: (id: number) => api.post(`/notifications/${id}/read`),
   markAllRead: () => api.post("/notifications/read-all"),
   unreadCount: () => api.get("/notifications/unread-count"),
+  events: (groupId: number, limit = 50) =>
+    api.get("/notifications/events", { params: { group_id: groupId, limit } }),
 };

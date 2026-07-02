@@ -36,6 +36,19 @@ class ParticipantResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AlternativeSlot(BaseModel):
+    date: date
+    free_count: int
+    total_members: int
+    free_members: list[str]
+
+
+class SuggestAlternativesResponse(BaseModel):
+    meeting_id: int
+    current_date: date
+    suggestions: list[AlternativeSlot]
+
+
 class MeetingResponse(BaseModel):
     id: int
     group_id: int

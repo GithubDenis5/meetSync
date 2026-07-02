@@ -21,6 +21,7 @@ class EventType(StrEnum):
     VOTING_FINISHED = "VotingFinished"
     REMINDER_NEEDED = "ReminderNeeded"
     NOTIFICATION_SENT = "NotificationSent"
+    GROUP_EVENT = "GroupEvent"
 
 
 # Exchange and queue naming

@@ -1,0 +1,55 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches: [master]
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd /root/meetSync
+
+            echo "=== Pulling latest code ==="
+            git pull origin master
+
+            echo "=== Building and restarting services ==="
+            docker compose build
+            docker compose up -d
+
+            echo "=== Cleaning up old images ==="
+            docker image prune -f
+
+            echo "=== Checking health ==="
+            sleep 5
+            curl -sf http://localhost/health || echo "Warning: health check not ready yet"
+
+            echo "=== Deploy complete ==="
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: always()
+    steps:
+      - name: Notify on success
+        if: needs.deploy.result == 'success'
+        run: echo "✅ Deploy to 185.92.180.219 completed successfully"
+
+      - name: Notify on failure
+        if: needs.deploy.result == 'failure'
+        run: echo "❌ Deploy to 185.92.180.219 failed"

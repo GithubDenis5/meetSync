@@ -2,7 +2,7 @@
 
 from shared.models.user import User
 from shared.models.group import Group, Membership, GroupRole
-from shared.models.calendar import Calendar, Availability, AvailabilityStatus
+from shared.models.calendar import Calendar, Availability, AvailabilityStatus, RecurringRule
 from shared.models.idea import Idea, IdeaReaction, ReactionType, IdeaComment
 from shared.models.vote import Vote, VoteOption, VoteResponse
 from shared.models.meeting import Meeting, MeetingParticipant
@@ -26,4 +26,5 @@ __all__ = [
     "Meeting",
     "MeetingParticipant",
     "Notification",
+    "RecurringRule",
 ]

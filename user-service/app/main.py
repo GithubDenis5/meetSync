@@ -8,12 +8,16 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from shared.logging import setup_logging
 
 from app.config import UserSettings
 from shared.database import DatabaseManager
 from shared.auth import AuthHandler
 from shared.schemas.user import UserResponse, UserUpdateRequest
+from shared.app_health import add_lifecycle
+from shared.metrics import add_prometheus_middleware
 
+setup_logging("user-service")
 logger = logging.getLogger("user-service")
 settings = UserSettings()
 db_manager = DatabaseManager(settings)  # type: ignore[arg-type]
@@ -22,10 +26,18 @@ auth = AuthHandler(settings)  # type: ignore[arg-type]
 app = FastAPI(title="MeetSync - User Service", version="0.1.0", docs_url="/docs")
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins.split(","), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
+add_prometheus_middleware(app, "user-service")
+add_lifecycle(app, "user-service", db_manager=db_manager)
+
 
 @app.get("/health")
-async def health():
+async def health() -> dict:
     return {"service": "user-service", "status": "ok"}
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    await db_manager.close()
 
 
 @app.get("/api/v1/users/me", response_model=UserResponse)

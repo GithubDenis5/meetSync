@@ -5,10 +5,11 @@ import {
   MenuItem, FormControl, InputLabel, CircularProgress, IconButton,
   Snackbar, Alert, useMediaQuery,
 } from "@mui/material";
-import { Add, Lightbulb, Archive, Event } from "@mui/icons-material";
+import { Add, Lightbulb, Archive, Event, Search } from "@mui/icons-material";
 import { ideasApi, groupApi, meetingApi } from "../utils/api";
 import { Idea, Group } from "../types";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import SearchBar from "../components/SearchBar";
 
 const CATEGORIES = [
   "Outdoor", "Entertainment", "Food & Drink", "Sports", "Culture",
@@ -23,6 +24,8 @@ const IdeasPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [cost, setCost] = useState("");
@@ -46,11 +49,18 @@ const IdeasPage: React.FC = () => {
 
   useEffect(() => {
     if (!selectedGroup) { setLoading(false); return; }
-    ideasApi.list(selectedGroup, showArchived)
-      .then(({ data }) => setIdeas(data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [selectedGroup, showArchived]);
+    if (searchQuery.trim()) {
+      ideasApi.search(selectedGroup, searchQuery.trim(), categoryFilter || undefined)
+        .then(({ data }) => setIdeas(data))
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    } else {
+      ideasApi.list(selectedGroup, showArchived)
+        .then(({ data }) => setIdeas(data))
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }
+  }, [selectedGroup, showArchived, searchQuery, categoryFilter]);
 
   const handleCreate = async () => {
     if (!selectedGroup) return;
@@ -125,6 +135,17 @@ const IdeasPage: React.FC = () => {
           {groups.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
         </Select>
       </FormControl>
+
+      <Box sx={{ display: "flex", gap: 1, mb: 2, flexWrap: "wrap", alignItems: "center" }}>
+        <SearchBar value={searchQuery} onChange={setSearchQuery} placeholder="Search ideas…" fullWidth={isMobile} />
+        <FormControl size="small" sx={{ minWidth: 140 }}>
+          <InputLabel>Category</InputLabel>
+          <Select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} label="Category">
+            <MenuItem value="">All</MenuItem>
+            {CATEGORIES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+          </Select>
+        </FormControl>
+      </Box>
 
       {!selectedGroup ? (
         <Typography color="text.secondary">Select a group to view ideas</Typography>

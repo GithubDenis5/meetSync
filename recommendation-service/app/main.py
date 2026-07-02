@@ -12,10 +12,14 @@ import redis.asyncio as aioredis
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from shared.logging import setup_logging
 
 from app.config import RecommendationSettings
 from shared.auth import AuthHandler
+from shared.app_health import add_lifecycle
+from shared.metrics import add_prometheus_middleware
 
+setup_logging("recommendation-service")
 logger = logging.getLogger("recommendation-service")
 settings = RecommendationSettings()
 auth = AuthHandler(settings)  # type: ignore[arg-type]
@@ -23,8 +27,17 @@ auth = AuthHandler(settings)  # type: ignore[arg-type]
 app = FastAPI(title="MeetSync - Recommendation Service", version="0.1.0", docs_url="/docs")
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins.split(","), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
+add_prometheus_middleware(app, "recommendation-service")
+
 redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
 CACHE_TTL = 3600  # 1 hour
+
+add_lifecycle(app, "recommendation-service", redis_client=redis_client)
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    await redis_client.close()
 
 
 class Recommendation(BaseModel):

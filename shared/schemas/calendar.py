@@ -41,6 +41,31 @@ class RecurringRuleRequest(BaseModel):
     status: str = Field(..., pattern=r"^(free|busy|maybe)$")
     start_time: str | None = Field(None, pattern=r"^\d{2}:\d{2}$")
     end_time: str | None = Field(None, pattern=r"^\d{2}:\d{2}$")
+    date_start: date | None = None
+    date_end: date | None = None
+
+
+class RecurringRuleUpdateRequest(BaseModel):
+    day_of_week: str | None = Field(None, pattern=r"^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$")
+    status: str | None = Field(None, pattern=r"^(free|busy|maybe)$")
+    start_time: str | None = Field(None, pattern=r"^\d{2}:\d{2}$")
+    end_time: str | None = Field(None, pattern=r"^\d{2}:\d{2}$")
+    date_start: date | None = None
+    date_end: date | None = None
+
+
+class RecurringRuleResponse(BaseModel):
+    id: int
+    user_id: int
+    group_id: int
+    day_of_week: str
+    status: str
+    start_time: str | None = None
+    end_time: str | None = None
+    date_start: date
+    date_end: date | None = None
+
+    model_config = {"from_attributes": True}
 
 
 class GroupCalendarResponse(BaseModel):

@@ -10,18 +10,25 @@ from typing import Optional
 import httpx
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from shared.logging import setup_logging
 
 from app.config import TelegramSettings
 from shared.rabbitmq.client import RabbitMQClient
 from shared.rabbitmq.events import EventType
 from shared.auth import AuthHandler
+from shared.metrics import add_prometheus_middleware
+from shared.app_health import add_lifecycle
 
+setup_logging("telegram-service")
 logger = logging.getLogger("telegram-service")
 settings = TelegramSettings()
 auth = AuthHandler(settings)  # type: ignore[arg-type]
 
 app = FastAPI(title="MeetSync - Telegram Service", version="0.1.0", docs_url="/docs")
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins.split(","), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+add_prometheus_middleware(app, "telegram-service")
+add_lifecycle(app, "telegram-service")
 
 rmq: Optional[RabbitMQClient] = None
 telegram_api = httpx.AsyncClient(base_url=f"https://api.telegram.org/bot{settings.telegram_bot_token or ''}", timeout=httpx.Timeout(35.0, connect=10.0))
@@ -68,6 +75,8 @@ async def shutdown():
         _polling_task.cancel()
         _polling_task = None
     await telegram_api.aclose()
+    if rmq:
+        await rmq.disconnect()
 
 
 # ─── Webhook (production) ────────────────────────────────────────

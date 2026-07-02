@@ -30,6 +30,10 @@ class GatewaySettings(BaseSettings):
     redis_host: str = "localhost"
     redis_port: int = 6379
 
+    # Upload
+    upload_max_size: int = 10 * 1024 * 1024  # 10 MB
+    upload_dir: str = "/uploads"
+
     # CORS
     cors_origins: str = "https://localhost,http://localhost:5173,http://localhost:3000"
 

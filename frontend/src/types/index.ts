@@ -140,3 +140,43 @@ export interface Recommendation {
   location?: string;
   source?: string;
 }
+
+export interface MemberAvailabilityStats {
+  user_id: number;
+  user_name: string;
+  marked_days: number;
+  free_days: number;
+}
+
+export interface GroupDashboard {
+  total_members: number;
+  total_meetings: number;
+  average_attendance: number;
+  upcoming_meetings: number;
+  top_ideas: Array<{ id: number; title: string; reactions: number }>;
+  availability_pct: number;
+  member_availability: MemberAvailabilityStats[];
+}
+
+export interface UploadedImage {
+  filename: string;
+  mimetype: string;
+  size: number;
+  urls: {
+    original: string;
+    thumb: string;
+    medium: string;
+  };
+}
+
+export interface RecurringRule {
+  id: number;
+  user_id: number;
+  group_id: number;
+  day_of_week: string;
+  status: "free" | "busy" | "maybe";
+  start_time?: string;
+  end_time?: string;
+  date_start: string;
+  date_end?: string;
+}

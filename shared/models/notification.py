@@ -19,6 +19,7 @@ class Notification(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    group_id: Mapped[Optional[int]] = mapped_column(ForeignKey("groups.id"), nullable=True)
     type: Mapped[str] = mapped_column(String(50), nullable=False)  # e.g. "meeting_invite", "vote_started", "reminder"
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

@@ -6,10 +6,14 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from shared.logging import setup_logging
 
 from app.config import AuthSettings
 from app.routes import router
+from shared.app_health import add_lifecycle
+from shared.metrics import add_prometheus_middleware
 
+setup_logging("auth-service")
 logger = logging.getLogger("auth-service")
 settings = AuthSettings()
 
@@ -31,6 +35,9 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+add_prometheus_middleware(app, "auth-service")
+add_lifecycle(app, "auth-service")
 
 
 @app.get("/health")

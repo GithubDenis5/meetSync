@@ -66,6 +66,11 @@ async def proxy(request: Request, path: str) -> Response:
     for h in ("host", "connection", "content-length"):
         headers.pop(h, None)
 
+    # Forward correlation ID from request state (set by CorrelationIdMiddleware)
+    correlation_id = getattr(request.state, "correlation_id", None)
+    if correlation_id:
+        headers["X-Request-ID"] = correlation_id
+
     # Forward query params
     params = dict(request.query_params)
 

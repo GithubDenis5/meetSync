@@ -62,3 +62,30 @@ class Availability(Base):
 
     def __repr__(self) -> str:
         return f"<Availability user={self.user_id} date={self.date} status={self.status}>"
+
+
+class RecurringRule(Base):
+    """Recurring availability rule — "free every Monday 9-18"."""
+    __tablename__ = "recurring_rules"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), nullable=False)
+    day_of_week: Mapped[str] = mapped_column(String(10), nullable=False)  # monday, tuesday, ...
+    status: Mapped[str] = mapped_column(String(10), default=AvailabilityStatus.FREE)
+    start_time: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)  # "09:00"
+    end_time: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)    # "18:00"
+    date_start: Mapped[date] = mapped_column(Date, nullable=False, default=lambda: date.today())
+    date_end: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationships
+    user: Mapped["User"] = relationship(back_populates="recurring_rules", lazy="selectin")
+
+    def __repr__(self) -> str:
+        return f"<RecurringRule user={self.user_id} day={self.day_of_week} status={self.status}>"

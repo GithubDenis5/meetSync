@@ -1,0 +1,15 @@
+FROM postgres:16-alpine
+
+RUN apk add --no-cache aws-cli
+
+COPY scripts/backup-db.sh /usr/local/bin/backup-db
+COPY scripts/restore-db.sh /usr/local/bin/restore-db
+RUN chmod +x /usr/local/bin/backup-db /usr/local/bin/restore-db
+
+# Create backup directory
+RUN mkdir -p /backups
+
+# Add cron job for daily backup at 03:00
+RUN echo "0 3 * * * /usr/local/bin/backup-db >> /var/log/backup.log 2>&1" > /etc/crontabs/root
+
+CMD ["crond", "-f", "-l", "2"]

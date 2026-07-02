@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from shared.logging import setup_logging
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from app.config import GatewaySettings
-from app.middleware import AuthMiddleware, RateLimitMiddleware
+from app.middleware import AuthMiddleware, CorrelationIdMiddleware, RateLimitMiddleware
 from app.router import router
+from app.upload import router as upload_router
+from shared.app_health import add_lifecycle
+from shared.metrics import add_prometheus_middleware
 
+setup_logging("gateway", "DEBUG" if "DEBUG" in __import__("os").environ.get("DEBUG", "") else "INFO")
 logger = logging.getLogger("gateway")
 
 settings = GatewaySettings()
@@ -33,13 +40,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Correlation ID (outermost — generates ID before any processing)
+app.add_middleware(CorrelationIdMiddleware)  # type: ignore[arg-type]
+
 # Rate limiting
 app.add_middleware(RateLimitMiddleware, settings=settings)  # type: ignore[arg-type]
 
 # Auth middleware
 app.add_middleware(AuthMiddleware, settings=settings)  # type: ignore[arg-type]
 
-# Routers
+# Prometheus metrics
+add_prometheus_middleware(app, "gateway")
+
+# Lifecycle endpoints
+add_lifecycle(app, "gateway")
+
+# Upload router (before proxy — handles multipart locally)
+app.include_router(upload_router)
+
+# Serve uploaded files
+uploads_dir = Path(settings.upload_dir)
+uploads_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads")
+
+# Proxy router (catch-all for microservice API routes)
 app.include_router(router)
 
 

@@ -6,3 +6,5 @@ redis>=5.2.0
 prometheus-client>=0.21.0
 python-json-logger>=2.0.0
 pydantic-settings>=2.7.0
+python-multipart>=0.0.18
+Pillow>=11.0.0

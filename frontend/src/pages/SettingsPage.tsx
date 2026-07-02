@@ -5,17 +5,19 @@ import {
 } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
 import { userApi } from "../utils/api";
+import ImageUpload from "../components/ImageUpload";
 
 const SettingsPage: React.FC = () => {
   const { user, logout } = useAuth();
   const [name, setName] = useState(user?.name || "");
   const [timezone, setTimezone] = useState(user?.timezone || "UTC");
+  const [avatar, setAvatar] = useState(user?.avatar || "");
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
 
   const handleSave = async () => {
     try {
-      await userApi.updateMe({ name, timezone });
+      await userApi.updateMe({ name, timezone, avatar: avatar || undefined });
       setSuccess("Settings updated");
     } catch (err: any) {
       setError(err.response?.data?.detail || "Failed to update settings");
@@ -33,13 +35,21 @@ const SettingsPage: React.FC = () => {
         <CardContent>
           <Typography variant="h6" gutterBottom>Profile</Typography>
           <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 3 }}>
-            <Avatar sx={{ width: 64, height: 64, bgcolor: "secondary.main", fontSize: 28 }}>
+            <Avatar src={avatar || user?.avatar} sx={{ width: 64, height: 64, bgcolor: "secondary.main", fontSize: 28 }}>
               {user?.name?.[0] || "U"}
             </Avatar>
-            <Box>
+            <Box sx={{ flex: 1 }}>
               <Typography variant="body1">{user?.name}</Typography>
               <Typography variant="body2" color="text.secondary">{user?.email}</Typography>
               {user?.telegram_id && <Typography variant="body2">Telegram: {user.telegram_id}</Typography>}
+              <Box sx={{ mt: 1, maxWidth: 300 }}>
+                <ImageUpload
+                  label="Change avatar"
+                  currentImage={avatar || user?.avatar}
+                  onUploaded={(urls) => setAvatar(urls.medium)}
+                  onRemove={() => setAvatar("")}
+                />
+              </Box>
             </Box>
           </Box>
 
