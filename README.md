@@ -9,36 +9,41 @@ MeetSync helps friend groups brainstorm activity ideas, check each other's avail
 ## Architecture Overview
 
 ```
-┌──────────────┐      ┌──────────────────────────────────────────┐
-│   Frontend   │─────▶│              API Gateway                 │
-│  React + MUI │      │           (FastAPI proxy)                │
-│  :3000       │      │             :8000                        │
-└──────────────┘      └────┬───────┬───────┬───────┬─────────────┘
-                           │       │       │       │
-              ┌────────────┼───────┼───────┼───────┼────────────────────┐
-              ▼            ▼       ▼       ▼       ▼                    │
-      ┌────────────┐ ┌────────┐ ┌──────┐ ┌────────────┐               │
-      │   Auth     │ │  User  │ │Group │ │  Calendar  │               │
-      │  :8001     │ │ :8002  │ │:8003 │ │  :8004     │               │
-      └────────────┘ └────────┘ └──────┘ └────────────┘               │
-      ┌────────────┐ ┌────────┐ ┌────────────┐ ┌────────────┐        │
-      │   Ideas    │ │ Voting │ │  Meeting    │ │Recommend.  │        │
-      │  :8005     │ │ :8006  │ │  :8011      │ │  :8007     │        │
-      └────────────┘ └────────┘ └────────────┘ └────────────┘        │
-      ┌────────────┐ ┌────────────┐ ┌─────────────┐                  │
-      │  Notif.    │ │  Telegram  │ │  Scheduler  │                  │
-      │  :8008     │ │  :8009     │ │  :8010      │                  │
-      └────────────┘ └────────────┘ └─────────────┘                  │
-                                                                     │
-              ┌──────────┐  ┌──────────┐  ┌──────────┐              │
-              │PostgreSQL│  │   Redis  │  │ RabbitMQ │              │
-              └──────────┘  └──────────┘  └──────────┘              │
-              ┌──────────┐  ┌──────────┐                             │
-              │Prometheus│  │  Grafana │◀────────────────────────────┘
-              └──────────┘  └──────────┘
+                               ┌──────────┐
+                               │   nginx  │  TLS termination
+                               │ :443/ :80│  (frontend)
+                               └────┬─────┘
+                                    │
+┌──────────────┐                    │       ┌──────────────────────────┐
+│   Frontend   │◄───────────────────┘──────▶│      API Gateway         │
+│  React + MUI │                            │   (FastAPI proxy)        │
+└──────────────┘                            │     :8000                │
+                                            └───┬────┬────┬────┬──────┘
+                                                │    │    │    │
+                              ┌─────────────────┼────┼────┼────┼──────────────────┐
+                              ▼                 ▼    ▼    ▼    ▼                  │
+                      ┌────────────┐  ┌────────┐ ┌──────┐ ┌────────────┐         │
+                      │   Auth     │  │  User  │ │Group │ │  Calendar  │         │
+                      │  :8001     │  │ :8002  │ │:8003 │ │  :8004     │         │
+                      └────────────┘  └────────┘ └──────┘ └────────────┘         │
+                      ┌────────────┐  ┌────────┐ ┌────────────┐ ┌────────────┐  │
+                      │   Ideas    │  │ Voting │ │  Meeting    │ │Recommend.  │  │
+                      │  :8005     │  │ :8006  │ │  :8011      │ │  :8007     │  │
+                      └────────────┘  └────────┘ └────────────┘ └────────────┘  │
+                      ┌────────────┐  ┌────────────┐ ┌─────────────┐            │
+                      │  Notif.    │  │  Telegram  │ │  Scheduler  │            │
+                      │  :8008     │  │  :8009     │ │  :8010      │            │
+                      └────────────┘  └────────────┘ └─────────────┘            │
+                                                                                │
+                      ┌──────────┐  ┌──────────┐  ┌──────────┐                 │
+                      │PostgreSQL│  │   Redis  │  │ RabbitMQ │                 │
+                      └──────────┘  └──────────┘  └──────────┘                 │
+                      ┌──────────┐  ┌──────────┐                                │
+                      │Prometheus│  │  Grafana │◀───────────────────────────────┘
+                      └──────────┘  └──────────┘
 ```
 
-**18 containers** — 12 microservices, 3 infrastructure (PostgreSQL, Redis, RabbitMQ), 1 frontend, 2 monitoring (Prometheus, Grafana).
+**18 containers** — 12 microservices, 3 infrastructure (PostgreSQL, Redis, RabbitMQ), 1 frontend (nginx), 1 migration job, 2 monitoring (Prometheus, Grafana).
 
 ---
 
@@ -52,6 +57,7 @@ MeetSync helps friend groups brainstorm activity ideas, check each other's avail
 | **Cache** | Redis 7 |
 | **Message Queue** | RabbitMQ 4 |
 | **API Gateway** | FastAPI with httpx proxy (lightweight reverse proxy) |
+| **Web Server** | nginx (TLS termination, reverse proxy to frontend & gateway) |
 | **Monitoring** | Prometheus + Grafana |
 | **Bot** | Telegram Bot API (long-polling + webhook) |
 | **Containerization** | Docker, Docker Compose |
@@ -75,6 +81,9 @@ git clone <repo-url> && cd meetsync
 # Copy environment file and customize if needed
 cp .env.example .env
 
+# Generate self-signed SSL certificates (required for HTTPS on localhost)
+make ssl-init
+
 # Start all services (this will take a few minutes on first run)
 docker compose up -d
 
@@ -86,18 +95,102 @@ docker compose ps
 
 | URL | Service |
 |-----|---------|
-| http://localhost:3000 | Frontend |
+| https://localhost | Frontend (HTTPS) |
 | http://localhost:8000/docs | API Gateway Swagger |
 | http://localhost:3001 | Grafana (admin / admin) |
 | http://localhost:15672 | RabbitMQ Management (meetsync / meetsync) |
 
+> **Note:** The frontend is only accessible via HTTPS (port 443). HTTP on port 80 redirects to HTTPS automatically.
+
 ### First Run
 
-1. Open http://localhost:3000
-2. Register a new account
-3. Create a group — an invite code is generated automatically
-4. Share the invite code with friends (or open another browser tab and register another user)
-5. Start adding ideas, marking calendar availability, and proposing events
+1. Open https://localhost
+2. Accept the self-signed certificate warning (dev only)
+3. Register a new account
+4. Create a group — an invite code is generated automatically
+5. Share the invite code with friends (or open another browser tab and register another user)
+6. Start adding ideas, marking calendar availability, and proposing events
+
+---
+
+## Production Deployment
+
+### Prerequisites
+
+- A server with Docker and Docker Compose
+- A domain name pointing to the server (for Let's Encrypt certificates)
+- Ports 80 and 443 open
+
+### Deploy with Let's Encrypt
+
+```bash
+# Clone the repo on the server
+git clone <repo-url> && cd meetsync
+
+# Create .env with production credentials
+cp .env.example .env
+# Edit .env — set JWT_SECRET_KEY, POSTGRES_PASSWORD, RABBITMQ_PASSWORD, etc.
+
+# Full production deployment (SSL certs + build + up)
+make prod-deploy
+
+# Or step by step:
+make ssl-init           # Generate self-signed fallback certs
+make ssl-letsencrypt DOMAIN=example.com   # Get/renew Let's Encrypt certs
+make prod-build         # Build with SSL certs
+make prod-up            # Start all services
+```
+
+### Deploy with self-signed certs (dev/staging)
+
+```bash
+make prod-deploy
+# Obtain real certs later:
+make ssl-letsencrypt DOMAIN=example.com
+docker compose up -d --no-deps --build frontend  # Restart nginx
+```
+
+### Environment for Production
+
+```bash
+# Minimal required changes from defaults:
+ENVIRONMENT=production
+DEBUG=false
+JWT_SECRET_KEY=<generate-a-strong-random-key>
+POSTGRES_PASSWORD=<generate-a-strong-password>
+RABBITMQ_PASSWORD=<generate-a-strong-password>
+CORS_ORIGINS=https://example.com,https://www.example.com
+```
+
+> **Important:** Passwords with special characters (`/`, `+`, `=`, etc.) are automatically URL-encoded in RabbitMQ connection strings. This is handled by all service configs — no manual encoding needed.
+
+### Database Migrations
+
+Database migrations run automatically at first launch via the `migration` container:
+
+- **First launch** (no tables exist): Runs all Alembic migrations
+- **Subsequent launch** (tables exist, but not at head): Runs pending migrations
+- **Already at head**: Fast exit (no work)
+
+To run migrations manually:
+
+```bash
+make migrate
+# or
+docker compose exec auth-service alembic upgrade head
+docker compose exec user-service alembic upgrade head
+# ... etc
+```
+
+### Make targets for production
+
+| Target | Description |
+|--------|-------------|
+| `make ssl-init` | Generate self-signed SSL certificates (bootstrap) |
+| `make ssl-letsencrypt DOMAIN=x` | Obtain/renew Let's Encrypt SSL |
+| `make prod-build` | `ssl-init` + `build` |
+| `make prod-up` | Start all services (production) |
+| `make prod-deploy` | Full deployment: `ssl-init` + `build` + `prod-up` |
 
 ---
 
@@ -107,18 +200,44 @@ All configuration is in `.env`. Key variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `ENVIRONMENT` | `development` | `development` or `production` |
 | `POSTGRES_DB` | `meetsync` | PostgreSQL database name |
 | `POSTGRES_USER` | `meetsync` | PostgreSQL user |
-| `POSTGRES_PASSWORD` | `change_me` | PostgreSQL password |
+| `POSTGRES_PASSWORD` | `change_me` | PostgreSQL password (change in production!) |
 | `JWT_SECRET_KEY` | — | JWT signing secret (change in production!) |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Access token TTL |
 | `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | `7` | Refresh token TTL |
 | `TELEGRAM_BOT_TOKEN` | — | Telegram bot token (optional, leave empty to disable) |
-| `TELEGRAM_WEBHOOK_URL` | — | Public webhook URL for Telegram (leave empty for polling mode) |
-| `CORS_ORIGINS` | `http://localhost:5173,http://localhost:3000` | Allowed CORS origins |
+| `TELEGRAM_WEBHOOK_URL` | — | Public HTTPS webhook URL for Telegram (leave empty for polling mode) |
+| `CORS_ORIGINS` | `https://localhost,http://localhost:5173,http://localhost:3000` | Allowed CORS origins |
 | `RATE_LIMIT_PER_MINUTE` | `60` | API rate limit per IP |
 
 Full list in [`.env.example`](.env.example).
+
+---
+
+## SSL Certificate Management
+
+Two options are available:
+
+### 1. Self-signed (development, staging)
+
+```bash
+make ssl-init
+```
+
+Generates `ssl/cert.pem` and `ssl/privkey.pem` for `localhost` and `185.92.180.219`. These are excluded from git via `.gitignore`.
+
+### 2. Let's Encrypt (production)
+
+```bash
+make ssl-letsencrypt DOMAIN=example.com
+```
+
+Requires the domain to be publicly reachable (port 80 and 443). The script:
+1. Obtains certificates via certbot
+2. Copies them to `ssl/cert.pem` and `ssl/privkey.pem`
+3. Renews automatically via a cron job
 
 ---
 
@@ -145,12 +264,12 @@ Full list in [`.env.example`](.env.example).
 
 | Container | Port | Description |
 |-----------|------|-------------|
-| postgres | 5432 | Primary database |
-| redis | 6379 | Cache, JWT blacklist, rate limiting |
-| rabbitmq | 5672 / 15672 | Message queue + management UI |
-| frontend | 3000 | React SPA (served via nginx) |
-| prometheus | 9090 | Metrics collection |
-| grafana | 3001 | Monitoring dashboards |
+| postgres | 5432 | Primary database (with healthcheck + persistent volume) |
+| redis | 6379 | Cache, JWT blacklist, rate limiting (with healthcheck) |
+| rabbitmq | 5672 / 15672 | Message queue + management UI (with healthcheck + dead-letter exchange) |
+| frontend | 80 / 443 | nginx: TLS termination + reverse proxy to gateway + static frontend |
+| prometheus | 9090 | Metrics collection (scrapes all services) |
+| grafana | 3001 | Monitoring dashboards (admin / admin) |
 
 ---
 
@@ -168,8 +287,11 @@ All routes go through the Gateway at `/api/v1/{service}/{path}`.
 | `/voting` | voting-service | `GET /`, `POST /`, `GET /{id}`, `POST /{id}/vote` |
 | `/meetings` | meeting-service | `GET /`, `POST /`, `GET /{id}`, `POST /{id}/rsvp`, `DELETE /{id}` |
 | `/recommendations` | recommendation-service | `GET /`, `GET /weather` |
-| `/notifications` | notification-service | `GET /`, `POST /{id}/read`, `POST /read-all` |
+| `/notifications` | notification-service | `GET /`, `POST /{id}/read`, `POST /read-all`, `GET /unread-count` |
 | `/telegram` | telegram-service | `POST /send`, `GET /me` |
+
+The gateway also exposes a WebSocket endpoint:
+- `/api/v1/notifications/ws/{token}` — Real-time notification delivery (notification-service)
 
 Every service also has its own Swagger UI at `http://localhost:{port}/docs`.
 
@@ -178,20 +300,20 @@ Every service also has its own Swagger UI at `http://localhost:{port}/docs`.
 ## Database Schema
 
 ```
-users          — id, name, email, password_hash, telegram_id, timezone, is_active
-groups         — id, name, description, invite_code, owner_id, min_people_for_meeting
-memberships    — id, user_id, group_id, role (OWNER/ADMIN/MEMBER)
-calendars      — id, user_id, group_id (preferences per group)
-availability   — id, user_id, group_id, date, status (free/busy/maybe), start_time, end_time
-ideas          — id, group_id, title, description, cost, category, photo, tags, location, suggestor_id
-idea_reactions — id, idea_id, user_id, reaction (👍❤️🔥👎)
-idea_comments  — id, idea_id, user_id, text
-votes          — id, group_id, title, vote_type, status, ends_at
-vote_options   — id, vote_id, idea_id (links to an idea)
-vote_responses — id, vote_id, option_id, user_id
-meetings       — id, group_id, idea_id?, title, description, date, time, location, creator_id
+users              — id, name, email, password_hash, telegram_id, timezone, is_active
+groups             — id, name, description, invite_code, owner_id, min_people_for_meeting
+memberships        — id, user_id, group_id, role (OWNER/ADMIN/MEMBER)
+calendars          — id, user_id, group_id (preferences per group)
+availability       — id, user_id, group_id, date, status (free/busy/maybe), start_time, end_time
+ideas              — id, group_id, title, description, cost, category, photo, tags, location, suggestor_id
+idea_reactions     — id, idea_id, user_id, reaction (👍❤️🔥👎)
+idea_comments      — id, idea_id, user_id, text
+votes              — id, group_id, title, vote_type, status, ends_at
+vote_options       — id, vote_id, idea_id (links to an idea)
+vote_responses     — id, vote_id, option_id, user_id
+meetings           — id, group_id, idea_id?, title, description, date, time, location, creator_id
 meeting_participants — id, meeting_id, user_id, status (going/not_going/maybe)
-notifications  — id, user_id, type, title, message, is_read
+notifications      — id, user_id, type, title, message, is_read
 ```
 
 ---
@@ -251,8 +373,18 @@ make shell-auth-service
 # Full clean (removes volumes — all data lost!)
 docker compose down -v
 
-# Tail all logs with make
-make logs
+# Generate SSL certificates
+make ssl-init
+make ssl-letsencrypt DOMAIN=example.com  # production
+
+# Production deployment
+make prod-deploy
+
+# Production shortcuts
+make prod-build           # SSL + build
+make prod-up              # start all services
+make rebuild-auth-service # rebuild a single service
+make logs-auth-service    # follow logs of a single service
 ```
 
 ---
@@ -278,7 +410,7 @@ The Telegram bot works in two modes:
 3. Restart the telegram service:
 
 ```bash
-docker compose up -d --no-deps --build telegram-service
+docker compose up -d --no-deps telegram-service
 ```
 
 ---
@@ -316,7 +448,7 @@ Admin starts a vote → Ideas loaded from idea bank
 
 ## Monitoring
 
-- **Prometheus** collects metrics from all services at `/metrics`
+- **Prometheus** collects metrics from all services at `/metrics` (15s scrape interval)
 - **Grafana** is pre-configured with Prometheus as a data source (login: `admin` / `admin`)
 - All services log structured JSON to stdout (ready for Loki/Grafana)
 
@@ -338,12 +470,18 @@ Admin starts a vote → Ideas loaded from idea bank
 ├── notification-service/ # WebSocket notifications
 ├── telegram-service/     # Telegram bot
 ├── scheduler-service/    # Scheduled tasks
+├── migration/            # Database migration job (runs auto on startup)
 ├── shared/               # Shared library (models, schemas, config, auth, rabbitmq)
-├── frontend/             # React SPA
+├── frontend/             # React SPA + nginx config
 ├── monitoring/           # Prometheus/Grafana config
+├── scripts/              # Utility scripts (ssl, migration, wait-for-it)
+│   ├── init-ssl.sh             # Self-signed SSL cert generation
+│   ├── ssl-letsencrypt.sh      # Let's Encrypt cert automation
+│   ├── run-migrations.py       # Auto-migration runner
+│   └── wait-for-it.sh          # Container readiness waiter
 ├── .env.example          # Environment template
-├── docker-compose.yml    # Container orchestration
-├── Makefile              # Dev commands
+├── docker-compose.yml    # Container orchestration (18 services)
+├── Makefile              # Dev + production commands
 └── README.md             # You are here
 ```
 
@@ -357,3 +495,6 @@ Admin starts a vote → Ideas loaded from idea bank
 - **Persistent volumes** — PostgreSQL, Redis, and RabbitMQ data survive container restarts
 - **Token auth** — JWT access + refresh tokens, service-to-service calls validated by shared `AuthHandler`
 - **All services have Swagger** at `/docs` for development and testing
+- **HTTPS by default** — nginx terminates TLS, HTTP redirects to HTTPS
+- **Auto-migration** — database schema updates run automatically at container start
+- **RabbitMQ with dead-letter exchange** — failed messages are routed to a DLX for debugging, never lost
