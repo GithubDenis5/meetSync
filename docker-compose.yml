@@ -354,7 +354,7 @@ services:
       - meetsync_net
 
   loki:
-    image: grafana/loki:3.0
+    image: grafana/loki:3.0.0
     container_name: meetsync-loki
     ports:
       - "3100:3100"
@@ -363,7 +363,7 @@ services:
       - meetsync_net
 
   promtail:
-    image: grafana/promtail:3.0
+    image: grafana/promtail:3.0.0
     container_name: meetsync-promtail
     volumes:
       - ./monitoring/promtail:/etc/promtail
