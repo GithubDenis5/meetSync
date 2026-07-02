@@ -29,8 +29,12 @@ jobs:
             echo "=== Pulling latest code ==="
             git pull origin master
 
-            echo "=== Building and restarting services ==="
-            docker compose build
+            echo "=== Building services (one by one to avoid OOM) ==="
+            for service in $(docker compose config --services); do
+              echo "  → Building $service"
+              docker compose build "$service"
+            done
+            echo "=== Starting all services ==="
             docker compose up -d
 
             echo "=== Cleaning up old images ==="
