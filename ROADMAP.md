@@ -1,8 +1,8 @@
 # MeetSync — Roadmap & Development Potential
 
-## Current State (v1.0)
+## Current State (v1.0 — Deployed to Production)
 
-MeetSync is a fully containerized microservice platform for organizing group leisure activities. The current implementation covers:
+MeetSync is a fully containerized microservice platform for organizing group leisure activities, now running in production. The current implementation covers:
 
 - ✅ User registration & JWT auth with refresh tokens
 - ✅ Group management with invite codes & roles (OWNER/ADMIN/MEMBER)
@@ -19,11 +19,50 @@ MeetSync is a fully containerized microservice platform for organizing group lei
 - ✅ Monitoring (Prometheus + Grafana)
 - ✅ 18 Docker containers running with a single command
 
+### Production Readiness (Completed v1.0)
+
+- ✅ **HTTPS** — nginx TLS termination with HTTP → HTTPS redirect
+- ✅ **Auto-migration** — database schema auto-deploys on first launch, skips if at head
+- ✅ **SSL certificates** — self-signed (dev) + Let's Encrypt (prod) scripts
+- ✅ **Production Make targets** — `make prod-deploy`, `make ssl-letsencrypt`, etc.
+- ✅ **Notification service reliability** — fixed RabbitMQ DNS issue (password URL encoding for special chars)
+- ✅ **Retry logic** — notification service connects to RabbitMQ with exponential backoff (10 attempts)
+- ✅ **Container restart policy** — `restart: unless-stopped` on notification service
+- ✅ **RabbitMQ healthcheck** — switched to `rabbitmq-diagnostics ping` (reliable)
+- ✅ **Docker Buildx** — installed on production server for image building
+
 ---
 
 ## Short-term — v1.1 (Next 1-2 Months)
 
-### 1. Recurring Availability Rules
+### 1. Prometheus Metrics for All Services
+
+Currently, Prometheus scrapes all 11 microservices at `/metrics`, but most services return 404. Each service needs a proper `/metrics` endpoint with:
+
+- Request count, latency, error rate histograms
+- Active WebSocket connections (notification-service)
+- RabbitMQ queue depths
+- Database connection pool stats
+- Python GC / memory metrics
+
+**Implementation:** Use `prometheus-client` library in each service. Create a shared `metrics.py` module with standard metric definitions. Most services already have `prometheus-client` in their requirements.
+
+Priority: **P0**
+
+### 2. Structured Logging & Log Aggregation
+
+Production logs are currently plain Python logging to stdout. Need:
+
+- JSON-formatted logs (machine-parseable) — all services use `python-json-logger` already
+- **Loki + Promtail** for log aggregation (complements Prometheus/Grafana)
+- Correlation ID across service boundaries (propagated via HTTP headers)
+- Centralized error tracking (Sentry)
+
+**Implementation:** Add Loki and Promtail containers to docker-compose. Add shared log configuration to `shared/` package. Add request ID middleware to gateway.
+
+Priority: **P0**
+
+### 3. Recurring Availability Rules
 
 Allow users to define repeating patterns:
 
@@ -36,17 +75,9 @@ This is the most requested feature and a natural extension of the calendar servi
 
 **Implementation:** Add a `recurring_rules` table linked to calendars. Store iCal-style RRULE or simplified JSON rules. Expand the calendar service to compute effective availability by merging explicit dates with recurring rules.
 
-### 2. Email Notifications
+Priority: **P1**
 
-Add email as a secondary notification channel alongside WebSocket and Telegram:
-
-- Email verification on registration
-- Digest emails (weekly availability summary)
-- Notification of new ideas/votes/meetings
-
-**Implementation:** Add an optional email-service (or extend notification-service) using SendGrid / AWS SES / SMTP. New `EmailSent` event.
-
-### 3. Image Upload
+### 4. Image Upload
 
 Support images for ideas, meetings, and user avatars:
 
@@ -56,7 +87,34 @@ Support images for ideas, meetings, and user avatars:
 
 **Implementation:** Add file upload endpoints, an image proxy service for resizing, and frontend upload components.
 
-### 4. Enhanced Group Dashboard
+Priority: **P1**
+
+### 5. Email Notifications
+
+Add email as a secondary notification channel alongside WebSocket and Telegram:
+
+- Email verification on registration
+- Digest emails (weekly availability summary)
+- Notification of new ideas/votes/meetings
+
+**Implementation:** Add an optional email-service (or extend notification-service) using SendGrid / AWS SES / SMTP. New `EmailSent` event.
+
+Priority: **P1**
+
+### 6. Database Backup Strategy
+
+Production PostgreSQL needs automated backups:
+
+- Daily `pg_dump` to persistent volume or S3
+- Point-in-time recovery (WAL archiving)
+- Retention policy (7 daily, 4 weekly, 3 monthly)
+- Restore script
+
+**Implementation:** Add a `pg-backup` container with cron and `pg_dump`. Or use `wal-g` for WAL-based backups. Document restore procedure.
+
+Priority: **P1**
+
+### 7. Enhanced Group Dashboard
 
 Per-group statistics:
 
@@ -66,11 +124,26 @@ Per-group statistics:
 - Availability heatmap (who's free most often)
 - "Best time to meet" recommendations
 
+Priority: **P2**
+
 ---
 
 ## Medium-term — v1.2 (3-6 Months)
 
-### 5. Google Calendar Integration
+### 8. CI/CD Pipeline
+
+Full automation:
+
+- GitHub Actions: lint → test → build → push → deploy
+- Automatic Alembic migrations on deployment
+- Integration tests in Docker Compose
+- Staging environment
+
+**Implementation:** `.github/workflows/` directory with separate workflows for test, build, and deploy. Current CI runs `ruff check` + `mypy` (both with `|| true` — make them strict).
+
+Priority: **P1**
+
+### 9. Google Calendar Integration
 
 Two-way sync with Google Calendar:
 
@@ -80,7 +153,9 @@ Two-way sync with Google Calendar:
 
 **Implementation:** New `integration-service` or extend calendar-service. Use Google Calendar API with OAuth2. Architecture already supports this — calendar service is modular.
 
-### 6. Push Notifications (Mobile)
+Priority: **P1**
+
+### 10. Push Notifications (Mobile)
 
 Extend notifications to mobile devices:
 
@@ -89,18 +164,9 @@ Extend notifications to mobile devices:
 
 **Implementation:** Frontend already supports PWA basics. Add push subscription endpoints, VAPID keys, and extend notification-service.
 
-### 7. CI/CD Pipeline
+Priority: **P1**
 
-Full automation:
-
-- GitHub Actions: lint → test → build → push → deploy
-- Automatic Alembic migrations on deployment
-- Integration tests in Docker Compose
-- Staging environment
-
-**Implementation:** `.github/workflows/` directory with separate workflows for test, build, and deploy.
-
-### 8. Rate Limiting Improvements
+### 11. Rate Limiting Improvements
 
 Current: simple per-IP rate limiting (60 req/min). Planned upgrades:
 
@@ -109,7 +175,9 @@ Current: simple per-IP rate limiting (60 req/min). Planned upgrades:
 - Distributed rate limiting via Redis (already in place — just needs smarter keys)
 - Rate limit headers (X-RateLimit-Remaining, X-RateLimit-Reset)
 
-### 9. Search
+Priority: **P2**
+
+### 12. Search
 
 Full-text search across ideas and meetings:
 
@@ -117,11 +185,25 @@ Full-text search across ideas and meetings:
 - Frontend search bar with real-time suggestions
 - Filter by category, date, group, status
 
+Priority: **P2**
+
+### 13. Service Health & Startup Improvements
+
+From production experience:
+
+- Health endpoint consolidation (all services return DB, Redis, RabbitMQ status)
+- Graceful shutdown for all services (handle SIGTERM properly)
+- Startup dependency graph (currently uses `depends_on` + healthchecks — could be smarter)
+- Auto-healing: if a service crashes N times in 5 minutes, alert instead of infinitely restarting
+- `/ready` and `/live` probe separation for Kubernetes readiness
+
+Priority: **P2**
+
 ---
 
 ## Long-term — v2.0 (6-12 Months)
 
-### 10. Mobile App
+### 14. Mobile App
 
 Native mobile applications:
 
@@ -129,7 +211,7 @@ Native mobile applications:
 - **Notifications:** Push (FCM/APNs)
 - **Features:** Calendar, RSVP, ideas, Telegram deep links
 
-### 11. Kubernetes Deployment
+### 15. Kubernetes Deployment
 
 Production-grade deployment:
 
@@ -148,7 +230,7 @@ Production-grade deployment:
 # telegram-service:    1 replica (stateful polling)
 ```
 
-### 12. Localization (i18n)
+### 16. Localization (i18n)
 
 Multi-language support:
 
@@ -159,7 +241,7 @@ Multi-language support:
 
 **Implementation:** Use `react-i18next` for frontend, Babel-style locale files for backend error messages.
 
-### 13. Advanced Scheduling
+### 17. Advanced Scheduling
 
 ML-powered scheduling:
 
@@ -169,7 +251,7 @@ ML-powered scheduling:
 - "Find the next N available slots across all members"
 - Poll-based scheduling ("pick from these 3 dates")
 
-### 14. Event History & Replay
+### 18. Event History & Replay
 
 Event sourcing for key flows:
 
@@ -178,7 +260,7 @@ Event sourcing for key flows:
 - Audit trail for all actions
 - Time-travel debugging ("what was the state on Monday?")
 
-### 15. Webhooks for External Integrations
+### 19. Webhooks for External Integrations
 
 Allow external services to subscribe to MeetSync events:
 
@@ -191,27 +273,27 @@ Allow external services to subscribe to MeetSync events:
 
 ## Long-term — v2.x (12+ Months)
 
-### 16. Activity Feed
+### 20. Activity Feed
 
 - Chronological feed of group activity (ideas, votes, meetings, RSVPs)
 - Per-group and global views
 - Pinned items
 - Archived feed
 
-### 17. Enhanced Groups
+### 21. Enhanced Groups
 
 - Group categories (friends, work, family, hobby)
 - Group discovery (public groups with join requests)
 - Subgroups
 - Group-level permissions (who can create meetings, who can start votes)
 
-### 18. Premium Features (Monetization)
+### 22. Premium Features (Monetization)
 
 - **Free tier:** Up to 3 groups, basic features
 - **Premium:** Unlimited groups, advanced analytics, Google Calendar sync, priority support
 - **Subscription management via Stripe**
 
-### 19. Performance & Reliability
+### 23. Performance & Reliability
 
 - Database read replicas for calendar/ideas queries
 - Redis caching layer for frequently accessed data
@@ -222,7 +304,7 @@ Allow external services to subscribe to MeetSync events:
 - End-to-end testing with Playwright
 - Load testing (k6 / Locust)
 
-### 20. Security Hardening
+### 24. Security Hardening
 
 - Security headers (CSP, HSTS, X-Frame-Options)
 - Rate limiting per user (vs per IP)
@@ -235,35 +317,65 @@ Allow external services to subscribe to MeetSync events:
 
 ## Feature Priority Matrix
 
-| Feature | Effort | Impact | Priority |
-|---------|--------|--------|----------|
-| Recurring availability | Medium | High | P0 — v1.1 |
-| Image upload | Medium | High | P0 — v1.1 |
-| Email notifications | Low | Medium | P1 — v1.1 |
-| Enhanced group dashboard | Low | Medium | P1 — v1.1 |
-| Google Calendar sync | High | High | P1 — v1.2 |
-| CI/CD pipeline | Medium | High | P1 — v1.2 |
-| Push notifications | Medium | High | P1 — v1.2 |
-| Search | Medium | Medium | P1 — v1.2 |
-| Rate limiting improvements | Low | Medium | P2 — v1.2 |
-| Mobile app | Very High | Very High | P2 — v2.0 |
-| Kubernetes | High | Medium | P2 — v2.0 |
-| i18n | Medium | Medium | P2 — v2.0 |
-| Advanced scheduling | High | High | P3 — v2.0 |
-| Event history / replay | Medium | Medium | P3 — v2.0 |
-| Webhooks | Medium | Medium | P3 — v2.0 |
-| Activity feed | Medium | Low | P3 — v2.x |
-| Premium features | High | Medium | P3 — v2.x |
+| # | Feature | Effort | Impact | Priority |
+|---|---------|--------|--------|----------|
+| 1 | Prometheus metrics for all services | Low | High | P0 — v1.1 |
+| 2 | Structured logging / Loki | Medium | High | P0 — v1.1 |
+| 3 | Database backup strategy | Medium | High | P1 — v1.1 |
+| 4 | Service health & startup improvements | Low | Medium | P1 — v1.1 |
+| 5 | Recurring availability | Medium | High | P1 — v1.1 |
+| 6 | Image upload | Medium | High | P1 — v1.1 |
+| 7 | Email notifications | Low | Medium | P1 — v1.1 |
+| 8 | CI/CD pipeline | Medium | High | P1 — v1.2 |
+| 9 | Google Calendar sync | High | High | P1 — v1.2 |
+| 10 | Push notifications | Medium | High | P1 — v1.2 |
+| 11 | Search | Medium | Medium | P2 — v1.2 |
+| 12 | Rate limiting improvements | Low | Medium | P2 — v1.2 |
+| 13 | Enhanced group dashboard | Low | Medium | P2 — v1.1 |
+| 14 | Mobile app | Very High | Very High | P2 — v2.0 |
+| 15 | Kubernetes | High | Medium | P2 — v2.0 |
+| 16 | i18n | Medium | Medium | P2 — v2.0 |
+| 17 | Advanced scheduling | High | High | P3 — v2.0 |
+| 18 | Event history / replay | Medium | Medium | P3 — v2.0 |
+| 19 | Webhooks | Medium | Medium | P3 — v2.0 |
+| 20 | Activity feed | Medium | Low | P3 — v2.x |
+| 21 | Premium features | High | Medium | P3 — v2.x |
 
 ---
 
 ## Architecture Evolution
 
-### Current (v1.0)
+### Current (v1.0 — Production)
 
 ```
-Gateway → 11 microservices → PostgreSQL + Redis + RabbitMQ
-Frontend → Gateway (proxy)
+                          ┌──────────┐
+                          │  nginx   │ TLS termination
+                          │ :443/:80 │
+                          └────┬─────┘
+                               │
+┌──────────────┐               │      ┌───────────────────┐
+│   Frontend   │◄──────────────┘─────▶│     Gateway       │
+│  React + MUI │                      │    (FastAPI)      │
+└──────────────┘                      └────────┬──────────┘
+                                               │
+                     ┌─────────────────────────┼─────────────────────┐
+                     ▼                         ▼                     ▼
+              ┌──────────┐             ┌──────────────┐     ┌──────────────┐
+              │PostgreSQL│             │    Redis     │     │   RabbitMQ   │
+              │ + Volume  │             │   + Volume   │     │  + DLX       │
+              └──────────┘             └──────────────┘     └──────────────┘
+                     │                        │                     │
+                     └────────────────────────┼─────────────────────┘
+                                              │
+                              ┌───────────────┴───────────────┐
+                              │    11 Microservices +         │
+                              │     Migration + Monitoring    │
+                              └───────────────────────────────┘
+                                              │
+                                     ┌───────┴───────┐
+                                     │  Prometheus   │
+                                     │    Grafana    │
+                                     └───────────────┘
 ```
 
 ### Planned (v2.0)
@@ -279,6 +391,9 @@ Gateway (multiple instances) → ─┼→ Redis Cluster
       ├→ Integration Service (Google Calendar)
       ├→ Notification Service (2-3 replicas, WebSocket)
       ├── ... existing services scaled independently
+      │
+      └→ Logs → Loki → Grafana
+      └→ Traces → Tempo / Jaeger
 ```
 
 ---
@@ -286,7 +401,8 @@ Gateway (multiple instances) → ─┼→ Redis Cluster
 ## Notes
 
 - All priorities are estimates and should be revisited per quarter
-- Features marked P0/v1.1 are high-impact, moderate-effort improvements
+- **P0 — v1.1 items** are production-hardening tasks discovered during initial deployment
+- Features marked P1/v1.1 are high-impact, moderate-effort improvements
 - Infrastructure features (CI/CD, K8s) enable faster development of all other features
 - Google Calendar integration depends on proper OAuth 2.0 infrastructure
 - Mobile app development should follow API stabilization (post v1.2)
